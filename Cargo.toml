@@ -441,7 +441,7 @@ reth-provider = { path = "crates/storage/provider" }
 reth-prune = { path = "crates/prune/prune" }
 reth-prune-types = { path = "crates/prune/types" }
 reth-revm = { path = "crates/revm", default-features = false }
-reth-grevm = { package = "grevm", git = "https://github.com/Galxe/grevm", branch = "main" }
+reth-grevm = { package = "grevm", git = "https://github.com/Galxe/grevm", tag = "v2.1.1" }
 reth-rpc = { path = "crates/rpc/rpc" }
 reth-rpc-api = { path = "crates/rpc/rpc-api" }
 reth-rpc-api-testing-util = { path = "crates/rpc/rpc-testing-util" }
@@ -537,6 +537,7 @@ bytes = { version = "1.5", default-features = false }
 cfg-if = "1.0"
 clap = "4"
 dashmap = "6.0"
+moka = "0.12.10"
 derive_more = { version = "1", default-features = false, features = ["full"] }
 dyn-clone = "1.0.17"
 eyre = "0.6"
