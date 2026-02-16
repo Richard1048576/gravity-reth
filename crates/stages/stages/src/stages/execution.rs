@@ -1,4 +1,3 @@
-use crate::stages::MERKLE_STAGE_DEFAULT_INCREMENTAL_THRESHOLD;
 use alloy_consensus::BlockHeader;
 use alloy_primitives::BlockNumber;
 use num_traits::Zero;
@@ -119,7 +118,7 @@ where
 
     /// Create an execution stage with the provided executor.
     ///
-    /// The commit threshold will be set to [`MERKLE_STAGE_DEFAULT_INCREMENTAL_THRESHOLD`].
+    /// The commit threshold will be set to 7000 (the merkle stage default incremental threshold).
     pub fn new_with_executor(
         evm_config: E,
         consensus: Arc<dyn FullConsensus<E::Primitives>>,
@@ -128,7 +127,7 @@ where
             evm_config,
             consensus,
             ExecutionStageThresholds::default(),
-            MERKLE_STAGE_DEFAULT_INCREMENTAL_THRESHOLD,
+            7_000,
             ExExManagerHandle::empty(),
         )
     }

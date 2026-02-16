@@ -38,13 +38,14 @@
 //! ```
 use crate::{
     stages::{
-        AccountHashingStage, BodyStage, EraImportSource, EraStage, ExecutionStage, FinishStage,
-        HeaderStage, IndexAccountHistoryStage, IndexStorageHistoryStage, MerkleStage,
-        PruneSenderRecoveryStage, PruneStage, SenderRecoveryStage, StorageHashingStage,
-        TransactionLookupStage,
+        BodyStage, EraImportSource, EraStage, ExecutionStage, FinishStage, HeaderStage,
+        IndexAccountHistoryStage, IndexStorageHistoryStage, PruneSenderRecoveryStage, PruneStage,
+        SenderRecoveryStage, TransactionLookupStage,
     },
     StageSet, StageSetBuilder,
 };
+#[cfg(feature = "merklization")]
+use crate::stages::{AccountHashingStage, MerkleStage, StorageHashingStage};
 use alloy_primitives::B256;
 use reth_config::config::StageConfig;
 use reth_consensus::FullConsensus;
@@ -294,7 +295,7 @@ where
 ///
 /// - [`ExecutionStages`]
 /// - [`PruneSenderRecoveryStage`]
-/// - [`HashingStages`]
+/// - `HashingStages` (only with `merklization` feature)
 /// - [`HistoryIndexingStages`]
 /// - [`PruneStage`]
 #[derive(Debug)]
@@ -322,6 +323,7 @@ impl<E: ConfigureEvm> OfflineStages<E> {
     }
 }
 
+#[cfg(feature = "merklization")]
 impl<E, Provider> StageSet<Provider> for OfflineStages<E>
 where
     E: ConfigureEvm,
@@ -339,7 +341,6 @@ where
             self.prune_modes.sender_recovery,
         )
         .builder()
-        // If sender recovery prune mode is set, add the prune sender recovery stage.
         .add_stage_opt(self.prune_modes.sender_recovery.map(|prune_mode| {
             PruneSenderRecoveryStage::new(prune_mode, self.stages_config.prune.commit_threshold)
         }))
@@ -348,8 +349,37 @@ where
             stages_config: self.stages_config.clone(),
             prune_modes: self.prune_modes.clone(),
         })
-        // Prune stage should be added after all hashing stages, because otherwise it will
-        // delete
+        .add_stage(PruneStage::new(
+            self.prune_modes.clone(),
+            self.stages_config.prune.commit_threshold,
+        ))
+    }
+}
+
+#[cfg(not(feature = "merklization"))]
+impl<E, Provider> StageSet<Provider> for OfflineStages<E>
+where
+    E: ConfigureEvm,
+    ExecutionStages<E>: StageSet<Provider>,
+    PruneSenderRecoveryStage: Stage<Provider>,
+    HistoryIndexingStages: StageSet<Provider>,
+    PruneStage: Stage<Provider>,
+{
+    fn builder(self) -> StageSetBuilder<Provider> {
+        ExecutionStages::new(
+            self.evm_config,
+            self.consensus,
+            self.stages_config.clone(),
+            self.prune_modes.sender_recovery,
+        )
+        .builder()
+        .add_stage_opt(self.prune_modes.sender_recovery.map(|prune_mode| {
+            PruneSenderRecoveryStage::new(prune_mode, self.stages_config.prune.commit_threshold)
+        }))
+        .add_set(HistoryIndexingStages {
+            stages_config: self.stages_config.clone(),
+            prune_modes: self.prune_modes.clone(),
+        })
         .add_stage(PruneStage::new(
             self.prune_modes.clone(),
             self.stages_config.prune.commit_threshold,
@@ -411,6 +441,7 @@ where
 /// - [`AccountHashingStage`]
 /// - [`StorageHashingStage`]
 /// - [`MerkleStage`] (execute)
+#[cfg(feature = "merklization")]
 #[derive(Debug, Default)]
 #[non_exhaustive]
 pub struct HashingStages {
@@ -418,6 +449,7 @@ pub struct HashingStages {
     stages_config: StageConfig,
 }
 
+#[cfg(feature = "merklization")]
 impl<Provider> StageSet<Provider> for HashingStages
 where
     MerkleStage: Stage<Provider>,

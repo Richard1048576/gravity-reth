@@ -29,21 +29,33 @@ use std::{
 
 const CACHE_METRICS_INTERVAL: Duration = Duration::from_secs(15);
 
+/// Default cache size: 16 GiB.
+const DEFAULT_CACHE_MAX_BYTES: u64 = 16 * 1024 * 1024 * 1024;
+
+/// Approximate byte size of a cached account entry (Address + Option<Account> + overhead).
+const ACCOUNT_ENTRY_BYTES: u64 = 120;
+
+/// Approximate byte size of a cached storage slot entry (Address + U256 key + Option<U256> + overhead).
+const STORAGE_ENTRY_BYTES: u64 = 100;
+
+/// Base overhead per contract entry (B256 key + DashMap overhead), bytecode length added separately.
+const CONTRACT_ENTRY_BASE_BYTES: u64 = 64;
+
 /// Configuration for the execution state cache.
 #[derive(Debug, Clone)]
 pub struct StateCacheConfig {
-    /// Maximum number of cached items before eviction triggers.
-    pub capacity: usize,
+    /// Maximum cache size in bytes before eviction triggers.
+    pub max_bytes: u64,
     /// Maximum gap between executed and persisted block numbers before
     /// backpressure is applied.
     pub max_persist_gap: u64,
-    /// Contract cache eviction threshold.
+    /// Contract cache eviction threshold (count-based, contracts are large and few).
     pub contracts_threshold: usize,
 }
 
 impl Default for StateCacheConfig {
     fn default() -> Self {
-        Self { capacity: 2_000_000, max_persist_gap: 64, contracts_threshold: 2_000 }
+        Self { max_bytes: DEFAULT_CACHE_MAX_BYTES, max_persist_gap: 64, contracts_threshold: 2_000 }
     }
 }
 
@@ -53,8 +65,8 @@ impl Default for StateCacheConfig {
 struct StateCacheMetrics {
     /// Cache hit ratio for account/storage reads.
     hit_ratio: Gauge,
-    /// Total number of cached items.
-    num_items: Gauge,
+    /// Total cached bytes (approximate).
+    cached_bytes: Gauge,
     /// Latest executed (merged) block number.
     latest_merged_block: Gauge,
     /// Latest persisted block number.
@@ -119,7 +131,7 @@ pub struct StateCache {
     persist_wait: Arc<(Mutex<bool>, Condvar)>,
     config: StateCacheConfig,
     hit_recorder: HitRecorder,
-    cached_items: AtomicU64,
+    cached_bytes: AtomicU64,
     merged_block_metric: AtomicU64,
     persist_block_metric: AtomicU64,
     metrics: StateCacheMetrics,
@@ -128,7 +140,7 @@ pub struct StateCache {
 impl std::fmt::Debug for StateCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StateCache")
-            .field("num_cached", &self.cached_items.load(Ordering::Relaxed))
+            .field("cached_bytes", &self.cached_bytes.load(Ordering::Relaxed))
             .finish()
     }
 }
@@ -147,7 +159,7 @@ impl StateCache {
             persist_wait: Arc::new((Mutex::new(false), Condvar::new())),
             config,
             hit_recorder: HitRecorder::default(),
-            cached_items: AtomicU64::new(0),
+            cached_bytes: AtomicU64::new(0),
             merged_block_metric: AtomicU64::new(0),
             persist_block_metric: AtomicU64::new(0),
             metrics: StateCacheMetrics::default(),
@@ -173,11 +185,11 @@ impl StateCache {
                     };
 
                     let start = Instant::now();
-                    let num_items = cache.entry_count();
-                    cache.cached_items.store(num_items as u64, Ordering::Release);
+                    let estimated = cache.estimate_total_bytes();
+                    cache.cached_bytes.store(estimated, Ordering::Release);
 
                     // Report metrics
-                    cache.metrics.num_items.set(num_items as f64);
+                    cache.metrics.cached_bytes.set(estimated as f64);
                     cache
                         .metrics
                         .latest_merged_block
@@ -205,8 +217,8 @@ impl StateCache {
                         last_contract_eviction_height = eviction_height;
                     }
 
-                    // Evict state when item count exceeds capacity
-                    if num_items > cache.config.capacity {
+                    // Evict state when byte usage exceeds max_bytes
+                    if estimated > cache.config.max_bytes {
                         let eviction_height = if last_state_eviction_height == 0 {
                             persist_height.saturating_sub(512).max(persist_height / 2)
                         } else {
@@ -226,11 +238,15 @@ impl StateCache {
             .expect("failed to spawn state cache eviction daemon");
     }
 
-    /// Count total cached entries (accounts + storage slots).
-    fn entry_count(&self) -> usize {
-        let mut count = self.accounts.len();
-        count += self.storage.iter().map(|s| s.len()).sum::<usize>();
-        count
+    /// Estimate total memory usage of cached entries in bytes.
+    fn estimate_total_bytes(&self) -> u64 {
+        let account_bytes = self.accounts.len() as u64 * ACCOUNT_ENTRY_BYTES;
+        let storage_bytes =
+            self.storage.iter().map(|s| s.len() as u64).sum::<u64>() * STORAGE_ENTRY_BYTES;
+        // Contract bytecodes vary in size; use base overhead per entry.
+        // Exact bytecode sizes are tracked during write_state_changes via cached_bytes.
+        let contract_bytes = self.contracts.len() as u64 * CONTRACT_ENTRY_BASE_BYTES;
+        account_bytes + storage_bytes + contract_bytes
     }
 
     // ---- Read methods ----
@@ -633,7 +649,8 @@ mod tests {
     use super::*;
 
     fn test_config() -> StateCacheConfig {
-        StateCacheConfig { capacity: 100, max_persist_gap: 4, contracts_threshold: 5 }
+        // Small cache for tests: ~12KB
+        StateCacheConfig { max_bytes: 12_000, max_persist_gap: 4, contracts_threshold: 5 }
     }
 
     #[test]

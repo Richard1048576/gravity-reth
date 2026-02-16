@@ -418,9 +418,10 @@ pub struct EngineArgs {
     #[arg(long = "engine.execution-state-cache", default_value_t = true)]
     pub execution_state_cache: bool,
 
-    /// Execution state cache capacity in number of items.
-    #[arg(long = "engine.execution-cache-capacity", default_value_t = 2_000_000)]
-    pub execution_cache_capacity: usize,
+    /// Maximum execution state cache size. Accepts human-readable values like "16GB", "512MB",
+    /// or raw byte counts like "17179869184". Default: 16GB.
+    #[arg(long = "engine.execution-cache-max-bytes", default_value = "16GB")]
+    pub execution_cache_max_bytes: String,
 
     /// Maximum gap between executed and persisted blocks before backpressure is applied.
     #[arg(long = "engine.execution-cache-max-persist-gap", default_value_t = 64)]
@@ -492,7 +493,7 @@ impl Default for EngineArgs {
             skip_state_root: false,
             minimal_state: false,
             execution_state_cache: true,
-            execution_cache_capacity: 2_000_000,
+            execution_cache_max_bytes: "16GB".to_string(),
             execution_cache_max_persist_gap: 64,
         }
     }
@@ -531,9 +532,38 @@ impl EngineArgs {
             .with_skip_state_root(self.skip_state_root || self.minimal_state)
             .with_minimal_state(self.minimal_state)
             .with_execution_state_cache(self.execution_state_cache)
-            .with_execution_cache_capacity(self.execution_cache_capacity)
+            .with_execution_cache_max_bytes(parse_byte_size(&self.execution_cache_max_bytes))
             .with_execution_cache_max_persist_gap(self.execution_cache_max_persist_gap)
     }
+}
+
+/// Parse a human-readable byte size string like "16GB", "512MB", "1TB", or a raw byte count.
+///
+/// Supports suffixes (case-insensitive): B, KB, MB, GB, TB.
+/// Falls back to parsing as raw `u64` bytes if no suffix matches.
+fn parse_byte_size(s: &str) -> u64 {
+    let s = s.trim();
+    let s_upper = s.to_uppercase();
+
+    let (num_str, multiplier) = if let Some(n) = s_upper.strip_suffix("TB") {
+        (n, 1024u64 * 1024 * 1024 * 1024)
+    } else if let Some(n) = s_upper.strip_suffix("GB") {
+        (n, 1024u64 * 1024 * 1024)
+    } else if let Some(n) = s_upper.strip_suffix("MB") {
+        (n, 1024u64 * 1024)
+    } else if let Some(n) = s_upper.strip_suffix("KB") {
+        (n, 1024u64)
+    } else if let Some(n) = s_upper.strip_suffix('B') {
+        (n, 1u64)
+    } else {
+        return s.parse::<u64>().expect("invalid byte size: expected number or suffix like GB/MB")
+    };
+
+    let num: u64 = num_str
+        .trim()
+        .parse()
+        .unwrap_or_else(|_| panic!("invalid byte size number: {s}"));
+    num * multiplier
 }
 
 #[cfg(test)]
@@ -591,7 +621,7 @@ mod tests {
             skip_state_root: false,
             minimal_state: false,
             execution_state_cache: true,
-            execution_cache_capacity: 2_000_000,
+            execution_cache_max_bytes: "16GB".to_string(),
             execution_cache_max_persist_gap: 64,
         };
 

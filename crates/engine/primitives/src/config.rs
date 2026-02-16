@@ -195,8 +195,8 @@ pub struct TreeConfig {
     minimal_state: bool,
     /// Whether the cross-block execution state cache is enabled.
     execution_state_cache: bool,
-    /// Execution state cache capacity in number of items.
-    execution_cache_capacity: usize,
+    /// Maximum execution state cache size in bytes (default: 16 GiB).
+    execution_cache_max_bytes: u64,
     /// Maximum gap between executed and persisted blocks before backpressure is applied.
     execution_cache_max_persist_gap: u64,
 }
@@ -236,7 +236,7 @@ impl Default for TreeConfig {
             skip_state_root: false,
             minimal_state: false,
             execution_state_cache: true,
-            execution_cache_capacity: 2_000_000,
+            execution_cache_max_bytes: 16 * 1024 * 1024 * 1024,
             execution_cache_max_persist_gap: 64,
         }
     }
@@ -307,7 +307,7 @@ impl TreeConfig {
             skip_state_root: false,
             minimal_state: false,
             execution_state_cache: true,
-            execution_cache_capacity: 2_000_000,
+            execution_cache_max_bytes: 16 * 1024 * 1024 * 1024,
             execution_cache_max_persist_gap: 64,
         }
     }
@@ -713,14 +713,14 @@ impl TreeConfig {
         self
     }
 
-    /// Returns the execution state cache capacity.
-    pub const fn execution_cache_capacity(&self) -> usize {
-        self.execution_cache_capacity
+    /// Returns the execution state cache max size in bytes.
+    pub const fn execution_cache_max_bytes(&self) -> u64 {
+        self.execution_cache_max_bytes
     }
 
-    /// Setter for execution state cache capacity.
-    pub const fn with_execution_cache_capacity(mut self, capacity: usize) -> Self {
-        self.execution_cache_capacity = capacity;
+    /// Setter for execution state cache max bytes.
+    pub const fn with_execution_cache_max_bytes(mut self, max_bytes: u64) -> Self {
+        self.execution_cache_max_bytes = max_bytes;
         self
     }
 

@@ -90,5 +90,6 @@ min-trace-logs = [
     "reth-node-core/min-trace-logs",
 ]
 
+merklization = ["reth-cli-commands/merklization", "reth-node-builder/merklization"]
 rocksdb = ["reth-cli-commands/rocksdb"]
 edge = ["rocksdb"]

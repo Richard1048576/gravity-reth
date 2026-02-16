@@ -133,5 +133,6 @@ arbitrary = [
     "reth-ethereum-primitives/arbitrary",
 ]
 
+merklization = ["reth-stages/merklization"]
 rocksdb = ["reth-db-common/rocksdb", "reth-stages/rocksdb", "reth-provider/rocksdb", "reth-prune/rocksdb"]
 edge = ["rocksdb"]

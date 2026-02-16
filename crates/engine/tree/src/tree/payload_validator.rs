@@ -182,7 +182,7 @@ where
         let execution_state_cache = if config.execution_state_cache() {
             let cache = Arc::new(super::state_cache::StateCache::new(
                 super::state_cache::StateCacheConfig {
-                    capacity: config.execution_cache_capacity(),
+                    max_bytes: config.execution_cache_max_bytes(),
                     max_persist_gap: config.execution_cache_max_persist_gap(),
                     contracts_threshold: 2_000,
                 },

@@ -6,8 +6,10 @@ mod execution;
 /// The finish stage
 mod finish;
 /// Account hashing stage.
+#[cfg(feature = "merklization")]
 mod hashing_account;
 /// Storage hashing stage.
+#[cfg(feature = "merklization")]
 mod hashing_storage;
 /// The headers stage.
 mod headers;
@@ -16,6 +18,7 @@ mod index_account_history;
 /// Index history of storage changes
 mod index_storage_history;
 /// Stage for computing state root.
+#[cfg(feature = "merklization")]
 mod merkle;
 mod prune;
 /// The sender recovery stage.
@@ -27,11 +30,14 @@ pub use bodies::*;
 pub use era::*;
 pub use execution::*;
 pub use finish::*;
+#[cfg(feature = "merklization")]
 pub use hashing_account::*;
+#[cfg(feature = "merklization")]
 pub use hashing_storage::*;
 pub use headers::*;
 pub use index_account_history::*;
 pub use index_storage_history::*;
+#[cfg(feature = "merklization")]
 pub use merkle::*;
 pub use prune::*;
 pub use sender_recovery::*;

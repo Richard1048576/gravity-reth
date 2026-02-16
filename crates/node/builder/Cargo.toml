@@ -121,6 +121,7 @@ test-utils = [
     "reth-primitives-traits/test-utils",
     "reth-tasks/test-utils",
 ]
+merklization = ["reth-stages/merklization"]
 op = [
     "reth-db/op",
     "reth-db-api/op",

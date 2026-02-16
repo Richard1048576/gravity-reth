@@ -82,6 +82,14 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+// Silence unused-crate warnings for crates only used by gated merklization modules.
+#[cfg(not(feature = "merklization"))]
+mod _unused_suppress {
+    use itertools as _;
+    use reth_codecs as _;
+    use reth_trie_db as _;
+}
+
 #[expect(missing_docs)]
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

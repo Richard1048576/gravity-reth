@@ -99,7 +99,9 @@ tempfile.workspace = true
 criterion = { workspace = true, features = ["async_tokio"] }
 
 [features]
+merklization = []
 test-utils = [
+    "merklization",
     "dep:reth-chainspec",
     "reth-network-p2p/test-utils",
     "reth-db/test-utils",

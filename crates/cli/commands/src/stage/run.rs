@@ -10,7 +10,9 @@ use reth_chainspec::{EthChainSpec, EthereumHardforks, Hardforks};
 use reth_cli::chainspec::ChainSpecParser;
 use reth_cli_runner::CliContext;
 use reth_cli_util::get_secret_key;
-use reth_config::config::{HashingConfig, SenderRecoveryConfig, TransactionLookupConfig};
+#[cfg(feature = "merklization")]
+use reth_config::config::HashingConfig;
+use reth_config::config::{SenderRecoveryConfig, TransactionLookupConfig};
 use reth_downloaders::{
     bodies::bodies::BodiesDownloaderBuilder,
     headers::reverse_headers::ReverseHeadersDownloaderBuilder,
@@ -34,12 +36,13 @@ use reth_provider::{
 };
 use reth_stages::{
     stages::{
-        AccountHashingStage, BodyStage, ExecutionStage, HeaderStage, IndexAccountHistoryStage,
-        IndexStorageHistoryStage, MerkleStage, SenderRecoveryStage, StorageHashingStage,
-        TransactionLookupStage,
+        BodyStage, ExecutionStage, HeaderStage, IndexAccountHistoryStage,
+        IndexStorageHistoryStage, SenderRecoveryStage, TransactionLookupStage,
     },
     ExecInput, ExecOutput, ExecutionStageThresholds, Stage, StageExt, UnwindInput, UnwindOutput,
 };
+#[cfg(feature = "merklization")]
+use reth_stages::stages::{AccountHashingStage, MerkleStage, StorageHashingStage};
 use std::{any::Any, net::SocketAddr, sync::Arc, time::Instant};
 use tokio::sync::watch;
 use tracing::*;
@@ -277,6 +280,7 @@ impl<C: ChainSpecParser<ChainSpec: EthChainSpec + Hardforks + EthereumHardforks>
                     )),
                     None,
                 ),
+                #[cfg(feature = "merklization")]
                 StageEnum::AccountHashing => (
                     Box::new(AccountHashingStage::new(
                         HashingConfig { clean_threshold: 1, commit_threshold: batch_size },
@@ -284,6 +288,7 @@ impl<C: ChainSpecParser<ChainSpec: EthChainSpec + Hardforks + EthereumHardforks>
                     )),
                     None,
                 ),
+                #[cfg(feature = "merklization")]
                 StageEnum::StorageHashing => (
                     Box::new(StorageHashingStage::new(
                         HashingConfig { clean_threshold: 1, commit_threshold: batch_size },
@@ -291,6 +296,7 @@ impl<C: ChainSpecParser<ChainSpec: EthChainSpec + Hardforks + EthereumHardforks>
                     )),
                     None,
                 ),
+                #[cfg(feature = "merklization")]
                 StageEnum::Merkle => (
                     Box::new(MerkleStage::new_execution(
                         config.stages.merkle.rebuild_threshold,
@@ -298,6 +304,12 @@ impl<C: ChainSpecParser<ChainSpec: EthChainSpec + Hardforks + EthereumHardforks>
                     )),
                     Some(Box::new(MerkleStage::default_unwind())),
                 ),
+                #[cfg(not(feature = "merklization"))]
+                StageEnum::AccountHashing | StageEnum::StorageHashing | StageEnum::Merkle => {
+                    eyre::bail!(
+                        "merklization stages not compiled; rebuild with --features merklization"
+                    )
+                }
                 StageEnum::AccountHistory => (
                     Box::new(IndexAccountHistoryStage::new(
                         config.stages.index_account_history,

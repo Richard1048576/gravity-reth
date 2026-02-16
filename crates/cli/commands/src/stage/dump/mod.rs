@@ -17,16 +17,22 @@ use reth_node_core::{
 use std::{path::PathBuf, sync::Arc};
 use tracing::info;
 
+#[cfg(feature = "merklization")]
 mod hashing_storage;
+#[cfg(feature = "merklization")]
 use hashing_storage::dump_hashing_storage_stage;
 
+#[cfg(feature = "merklization")]
 mod hashing_account;
+#[cfg(feature = "merklization")]
 use hashing_account::dump_hashing_account_stage;
 
 mod execution;
 use execution::dump_execution_stage;
 
+#[cfg(feature = "merklization")]
 mod merkle;
+#[cfg(feature = "merklization")]
 use merkle::dump_merkle_stage;
 
 /// `reth dump-stage` command
@@ -45,10 +51,13 @@ pub enum Stages {
     /// Execution stage.
     Execution(StageCommand),
     /// `StorageHashing` stage.
+    #[cfg(feature = "merklization")]
     StorageHashing(StageCommand),
     /// `AccountHashing` stage.
+    #[cfg(feature = "merklization")]
     AccountHashing(StageCommand),
     /// Merkle stage.
+    #[cfg(feature = "merklization")]
     Merkle(StageCommand),
 }
 
@@ -105,8 +114,11 @@ impl<C: ChainSpecParser<ChainSpec: EthChainSpec + EthereumHardforks>> Command<C>
             Stages::Execution(cmd) => {
                 handle_stage!(dump_execution_stage, &tool, cmd, evm_config, consensus)
             }
+            #[cfg(feature = "merklization")]
             Stages::StorageHashing(cmd) => handle_stage!(dump_hashing_storage_stage, &tool, cmd),
+            #[cfg(feature = "merklization")]
             Stages::AccountHashing(cmd) => handle_stage!(dump_hashing_account_stage, &tool, cmd),
+            #[cfg(feature = "merklization")]
             Stages::Merkle(cmd) => {
                 handle_stage!(dump_merkle_stage, &tool, cmd, evm_config, consensus)
             }
