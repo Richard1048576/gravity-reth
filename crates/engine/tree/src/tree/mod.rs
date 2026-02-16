@@ -59,6 +59,7 @@ pub mod payload_processor;
 pub mod payload_validator;
 mod persistence_state;
 pub mod precompile_cache;
+pub mod state_cache;
 #[cfg(test)]
 mod tests;
 mod trie_updates;
@@ -1379,6 +1380,9 @@ where
 
         debug!(target: "engine::tree", ?last_persisted_block_hash, ?last_persisted_block_number, elapsed=?start_time.elapsed(), "Finished persisting, calling finish");
         self.persistence_state.finish(last_persisted_block_hash, last_persisted_block_number);
+
+        // Update execution state cache persist tip
+        self.payload_validator.on_persistence_complete(last_persisted_block_number);
 
         // Evict trie changesets for blocks below the eviction threshold.
         // Keep at least CHANGESET_CACHE_RETENTION_BLOCKS from the persisted tip, and also respect

@@ -83,9 +83,17 @@ impl EngineNodeLauncher {
             adapter: NodeTypesAdapter { database },
             components_builder,
             add_ons: AddOns { hooks, exexs: installed_exex, add_ons },
-            config,
+            mut config,
         } = target;
         let NodeHooks { on_component_initialized, on_node_started, .. } = hooks;
+
+        // Override PruneModes when minimal_state is active to suppress changeset/history writes.
+        // This must happen before the ProviderFactory is created so PruneModes propagate to all
+        // DatabaseProvider instances created from the factory.
+        if engine_tree_config.minimal_state() {
+            config.pruning.account_history_full = true;
+            config.pruning.storage_history_full = true;
+        }
 
         // Create changeset cache that will be shared across the engine
         let changeset_cache = ChangesetCache::new();
@@ -145,6 +153,9 @@ impl EngineNodeLauncher {
 
         let consensus = Arc::new(ctx.components().consensus().clone());
 
+        let skip_state_root = engine_tree_config.skip_state_root();
+        let minimal_state = engine_tree_config.minimal_state();
+
         let pipeline = build_networked_pipeline(
             &ctx.toml_config().stages,
             network_client.clone(),
@@ -158,6 +169,8 @@ impl EngineNodeLauncher {
             ctx.components().evm_config().clone(),
             maybe_exex_manager_handle.clone().unwrap_or_else(ExExManagerHandle::empty),
             ctx.era_import_source(),
+            skip_state_root,
+            minimal_state,
         )?;
 
         // The new engine writes directly to static files. This ensures that they're up to the tip.

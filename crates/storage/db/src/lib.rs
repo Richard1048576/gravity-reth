@@ -1,7 +1,7 @@
-//! MDBX implementation for reth's database abstraction layer.
+//! Database implementation for reth's storage abstraction layer.
 //!
-//! This crate is an implementation of `reth-db-api` for MDBX, as well as a few other common
-//! database types.
+//! This crate provides implementations of `reth-db-api` for MDBX and RocksDB,
+//! as well as a few other common database types.
 //!
 //! # Overview
 //!
@@ -15,6 +15,12 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+// Suppress unused dep warning when only rocksdb feature is active
+// (tracing is used transitively via reth_tracing, but the direct dep is only
+// referenced by the mdbx metrics module).
+#[cfg(not(feature = "mdbx"))]
+use tracing as _;
+
 mod implementation;
 pub mod lockfile;
 #[cfg(feature = "mdbx")]
@@ -27,12 +33,24 @@ pub mod version;
 #[cfg(feature = "mdbx")]
 pub mod mdbx;
 
+#[cfg(feature = "rocksdb")]
+pub mod rocksdb_backend;
+
 pub use reth_storage_errors::db::{DatabaseError, DatabaseWriteOperation};
+
 #[cfg(feature = "mdbx")]
 pub use utils::is_database_empty;
 
-#[cfg(feature = "mdbx")]
+// Re-export the active backend's public API.
+// When both features are enabled, rocksdb takes priority.
+#[cfg(all(feature = "mdbx", not(feature = "rocksdb")))]
 pub use mdbx::{create_db, init_db, open_db, open_db_read_only, DatabaseEnv, DatabaseEnvKind};
+
+#[cfg(feature = "rocksdb")]
+pub use rocksdb_backend::{
+    create_db, init_db, open_db, open_db_read_only, DatabaseArguments, DatabaseEnv,
+    DatabaseEnvKind,
+};
 
 pub use models::ClientVersion;
 pub use reth_db_api::*;
@@ -41,7 +59,6 @@ pub use reth_db_api::*;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils {
     use super::*;
-    use crate::mdbx::DatabaseArguments;
     use parking_lot::RwLock;
     use reth_db_api::{database::Database, database_metrics::DatabaseMetrics};
     use reth_fs_util;
@@ -51,6 +68,12 @@ pub mod test_utils {
         sync::Arc,
     };
     use tempfile::TempDir;
+
+    // Import DatabaseArguments from the active backend.
+    #[cfg(all(feature = "mdbx", not(feature = "rocksdb")))]
+    use crate::mdbx::DatabaseArguments;
+    #[cfg(feature = "rocksdb")]
+    use crate::rocksdb_backend::DatabaseArguments;
 
     /// Error during database open
     pub const ERROR_DB_OPEN: &str = "could not open the database file";
@@ -220,7 +243,7 @@ pub mod test_utils {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "mdbx"))]
 mod tests {
     use crate::{
         init_db,

@@ -135,6 +135,8 @@ where
     changeset_cache: ChangesetCache,
     /// Task runtime for spawning parallel work.
     runtime: reth_tasks::Runtime,
+    /// Cross-block execution state cache for reducing database reads.
+    execution_state_cache: Option<Arc<super::state_cache::StateCache>>,
 }
 
 impl<N, P, Evm, V> BasicEngineValidator<P, Evm, V>
@@ -177,6 +179,20 @@ where
             &config,
             precompile_cache_map.clone(),
         );
+        let execution_state_cache = if config.execution_state_cache() {
+            let cache = Arc::new(super::state_cache::StateCache::new(
+                super::state_cache::StateCacheConfig {
+                    capacity: config.execution_cache_capacity(),
+                    max_persist_gap: config.execution_cache_max_persist_gap(),
+                    contracts_threshold: 2_000,
+                },
+            ));
+            cache.spawn_eviction_daemon();
+            Some(cache)
+        } else {
+            None
+        };
+
         Self {
             provider,
             consensus,
@@ -190,6 +206,7 @@ where
             validator,
             changeset_cache,
             runtime,
+            execution_state_cache,
         }
     }
 
@@ -441,6 +458,14 @@ where
             block_access_list,
         ));
 
+        // Wrap with cross-block execution state cache (reduces database reads across blocks).
+        if let Some(ref cache) = self.execution_state_cache {
+            state_provider = Box::new(super::state_cache::CachedDatabaseStateProvider::new(
+                state_provider,
+                cache.clone(),
+            ));
+        }
+
         // Use cached state provider before executing, used in execution after prewarming threads
         // complete
         if let Some((caches, cache_metrics)) = handle.caches().zip(handle.cache_metrics()) {
@@ -469,6 +494,11 @@ where
         // trie task without cloning the expensive BundleState.
         let output = Arc::new(output);
 
+        // Update cross-block cache with execution results.
+        if let Some(ref cache) = self.execution_state_cache {
+            cache.write_state_changes(input.num_hash().number, &output.state);
+        }
+
         // Terminate caching task early since execution is complete and caching is no longer
         // needed. This frees up resources while state root computation continues.
         let valid_block_tx = handle.terminate_caching(Some(output.clone()));
@@ -496,6 +526,35 @@ where
             ),
             block
         );
+
+        // When skip_state_root is enabled, trust the remote state root and skip computation.
+        if self.config.skip_state_root() {
+            debug!(
+                target: "engine::tree::payload_validator",
+                "Skipping state root computation (trusting remote)"
+            );
+            let trie_output = TrieUpdates::default();
+
+            // When minimal_state, pass empty hashed state so persistence skips writing it.
+            let hashed_state_for_trie = if self.config.minimal_state() {
+                HashedPostState::default()
+            } else {
+                hashed_state
+            };
+
+            if let Some(valid_block_tx) = valid_block_tx {
+                let _ = valid_block_tx.send(());
+            }
+
+            return Ok(self.spawn_deferred_trie_task(
+                block,
+                output,
+                &ctx,
+                hashed_state_for_trie,
+                trie_output,
+                overlay_factory,
+            ))
+        }
 
         let root_time = Instant::now();
         let mut maybe_state_root = None;
@@ -1517,6 +1576,12 @@ pub trait EngineValidator<
     /// This is invoked when blocks are inserted via `InsertExecutedBlock` (e.g., locally built
     /// blocks by sequencers) to allow implementations to update internal state such as caches.
     fn on_inserted_executed_block(&self, block: ExecutedBlock<N>);
+
+    /// Hook called after blocks have been persisted to disk.
+    ///
+    /// Implementations can use this to update internal caches (e.g., advancing the persist tip
+    /// in a cross-block execution state cache for eviction and backpressure).
+    fn on_persistence_complete(&self, _block_number: u64) {}
 }
 
 impl<N, Types, P, Evm, V> EngineValidator<Types> for BasicEngineValidator<P, Evm, V>
@@ -1579,6 +1644,12 @@ where
             block.recovered_block.block_with_parent(),
             &block.execution_output.state,
         );
+    }
+
+    fn on_persistence_complete(&self, block_number: u64) {
+        if let Some(ref cache) = self.execution_state_cache {
+            cache.persist_tip(block_number);
+        }
     }
 }
 

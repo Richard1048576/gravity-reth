@@ -42,6 +42,8 @@ pub fn build_networked_pipeline<N, Client, Evm>(
     evm_config: Evm,
     exex_manager_handle: ExExManagerHandle<N::Primitives>,
     era_import_source: Option<EraImportSource>,
+    skip_state_root: bool,
+    minimal_state: bool,
 ) -> eyre::Result<Pipeline<N>>
 where
     N: ProviderNodeTypes,
@@ -70,6 +72,8 @@ where
         evm_config,
         exex_manager_handle,
         era_import_source,
+        skip_state_root,
+        minimal_state,
     )?;
 
     Ok(pipeline)
@@ -90,6 +94,8 @@ pub fn build_pipeline<N, H, B, Evm>(
     evm_config: Evm,
     exex_manager_handle: ExExManagerHandle<N::Primitives>,
     era_import_source: Option<EraImportSource>,
+    skip_state_root: bool,
+    minimal_state: bool,
 ) -> eyre::Result<Pipeline<N>>
 where
     N: ProviderNodeTypes,
@@ -106,29 +112,47 @@ where
 
     let (tip_tx, tip_rx) = watch::channel(B256::ZERO);
 
+    let mut stages = DefaultStages::new(
+        provider_factory.clone(),
+        tip_rx,
+        Arc::clone(&consensus),
+        header_downloader,
+        body_downloader,
+        evm_config.clone(),
+        stage_config.clone(),
+        prune_config.segments,
+        era_import_source,
+    )
+    .set(ExecutionStage::new(
+        evm_config,
+        consensus,
+        stage_config.execution.into(),
+        stage_config.execution_external_clean_threshold(),
+        exex_manager_handle,
+    ));
+
+    // Disable merkle/hashing stages when state root computation is skipped.
+    if skip_state_root || minimal_state {
+        stages = stages.disable_all(&[
+            reth_stages::StageId::MerkleUnwind,
+            reth_stages::StageId::MerkleExecute,
+            reth_stages::StageId::AccountHashing,
+            reth_stages::StageId::StorageHashing,
+        ]);
+    }
+
+    // Disable history index stages when running in minimal state mode.
+    if minimal_state {
+        stages = stages.disable_all(&[
+            reth_stages::StageId::IndexAccountHistory,
+            reth_stages::StageId::IndexStorageHistory,
+        ]);
+    }
+
     let pipeline = builder
         .with_tip_sender(tip_tx)
         .with_metrics_tx(metrics_tx)
-        .add_stages(
-            DefaultStages::new(
-                provider_factory.clone(),
-                tip_rx,
-                Arc::clone(&consensus),
-                header_downloader,
-                body_downloader,
-                evm_config.clone(),
-                stage_config.clone(),
-                prune_config.segments,
-                era_import_source,
-            )
-            .set(ExecutionStage::new(
-                evm_config,
-                consensus,
-                stage_config.execution.into(),
-                stage_config.execution_external_clean_threshold(),
-                exex_manager_handle,
-            )),
-        )
+        .add_stages(stages)
         .build(provider_factory, static_file_producer);
 
     Ok(pipeline)

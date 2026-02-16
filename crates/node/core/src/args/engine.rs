@@ -400,6 +400,31 @@ pub struct EngineArgs {
         default_value = DefaultEngineValues::get_global().state_root_task_timeout.as_deref().unwrap_or("1s"),
     )]
     pub state_root_task_timeout: Option<Duration>,
+
+    /// Skip state root computation and trust the remote block's state root.
+    /// When enabled, the engine will not compute or verify the state root, and the pipeline
+    /// will skip merkle and hashing stages.
+    #[arg(long = "engine.skip-state-root")]
+    pub skip_state_root: bool,
+
+    /// Enable minimal state mode: skip writing changesets, hashed state, trie updates,
+    /// and history indices. Only latest plain state is maintained.
+    /// Implies --engine.skip-state-root.
+    #[arg(long = "engine.minimal-state")]
+    pub minimal_state: bool,
+
+    /// Enable the cross-block execution state cache (DashMap-based).
+    /// Caches accounts, storage, and bytecodes across block boundaries.
+    #[arg(long = "engine.execution-state-cache", default_value_t = true)]
+    pub execution_state_cache: bool,
+
+    /// Execution state cache capacity in number of items.
+    #[arg(long = "engine.execution-cache-capacity", default_value_t = 2_000_000)]
+    pub execution_cache_capacity: usize,
+
+    /// Maximum gap between executed and persisted blocks before backpressure is applied.
+    #[arg(long = "engine.execution-cache-max-persist-gap", default_value_t = 64)]
+    pub execution_cache_max_persist_gap: u64,
 }
 
 #[allow(deprecated)]
@@ -464,6 +489,11 @@ impl Default for EngineArgs {
             state_root_task_timeout: state_root_task_timeout
                 .as_deref()
                 .map(|s| humantime::parse_duration(s).expect("valid default duration")),
+            skip_state_root: false,
+            minimal_state: false,
+            execution_state_cache: true,
+            execution_cache_capacity: 2_000_000,
+            execution_cache_max_persist_gap: 64,
         }
     }
 }
@@ -498,6 +528,11 @@ impl EngineArgs {
             .with_sparse_trie_max_storage_tries(self.sparse_trie_max_storage_tries)
             .with_disable_sparse_trie_cache_pruning(self.disable_sparse_trie_cache_pruning)
             .with_state_root_task_timeout(self.state_root_task_timeout.filter(|d| !d.is_zero()))
+            .with_skip_state_root(self.skip_state_root || self.minimal_state)
+            .with_minimal_state(self.minimal_state)
+            .with_execution_state_cache(self.execution_state_cache)
+            .with_execution_cache_capacity(self.execution_cache_capacity)
+            .with_execution_cache_max_persist_gap(self.execution_cache_max_persist_gap)
     }
 }
 
@@ -553,6 +588,11 @@ mod tests {
             sparse_trie_max_storage_tries: 100,
             disable_sparse_trie_cache_pruning: true,
             state_root_task_timeout: Some(Duration::from_secs(2)),
+            skip_state_root: false,
+            minimal_state: false,
+            execution_state_cache: true,
+            execution_cache_capacity: 2_000_000,
+            execution_cache_max_persist_gap: 64,
         };
 
         let parsed_args = CommandParser::<EngineArgs>::parse_from([

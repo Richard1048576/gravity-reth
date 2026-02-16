@@ -524,6 +524,12 @@ impl<TX: DbTx + DbTxMut + 'static, N: NodeTypesForProvider> DatabaseProvider<TX,
             return Ok(())
         }
 
+        // When both account_history and storage_history are Full, skip changeset writes entirely.
+        // This is activated by --engine.minimal-state which overrides PruneModes.
+        let skip_changesets =
+            self.prune_modes.account_history == Some(PruneMode::Full) &&
+            self.prune_modes.storage_history == Some(PruneMode::Full);
+
         let total_start = Instant::now();
         let block_count = blocks.len() as u64;
         let first_number = blocks.first().unwrap().recovered_block().number();
@@ -553,7 +559,11 @@ impl<TX: DbTx + DbTxMut + 'static, N: NodeTypesForProvider> DatabaseProvider<TX,
 
         // avoid capturing &self.tx in scope below.
         let sf_provider = &self.static_file_provider;
-        let sf_ctx = self.static_file_write_ctx(save_mode, first_number, last_block_number)?;
+        let mut sf_ctx = self.static_file_write_ctx(save_mode, first_number, last_block_number)?;
+        if skip_changesets {
+            sf_ctx.write_account_changesets = false;
+            sf_ctx.write_storage_changesets = false;
+        }
         #[cfg(all(unix, feature = "rocksdb"))]
         let rocksdb_provider = self.rocksdb_provider.clone();
         #[cfg(all(unix, feature = "rocksdb"))]
@@ -650,8 +660,8 @@ impl<TX: DbTx + DbTxMut + 'static, N: NodeTypesForProvider> DatabaseProvider<TX,
                         OriginalValuesKnown::No,
                         StateWriteConfig {
                             write_receipts: !sf_ctx.write_receipts,
-                            write_account_changesets: !sf_ctx.write_account_changesets,
-                            write_storage_changesets: !sf_ctx.write_storage_changesets,
+                            write_account_changesets: !sf_ctx.write_account_changesets && !skip_changesets,
+                            write_storage_changesets: !sf_ctx.write_storage_changesets && !skip_changesets,
                         },
                     )?;
                     timings.write_state += start.elapsed();

@@ -186,6 +186,19 @@ pub struct TreeConfig {
     /// computation is spawned in parallel and whichever finishes first is used.
     /// If `None`, the timeout fallback is disabled.
     state_root_task_timeout: Option<Duration>,
+    /// Whether to skip state root computation and trust the remote block's state root.
+    /// When enabled, the engine tree will not compute or verify the state root, accepting
+    /// the value from the block header as-is.
+    skip_state_root: bool,
+    /// Whether to run in minimal state mode: skip writing changesets, hashed state,
+    /// trie updates, and history indices. Implies `skip_state_root`.
+    minimal_state: bool,
+    /// Whether the cross-block execution state cache is enabled.
+    execution_state_cache: bool,
+    /// Execution state cache capacity in number of items.
+    execution_cache_capacity: usize,
+    /// Maximum gap between executed and persisted blocks before backpressure is applied.
+    execution_cache_max_persist_gap: u64,
 }
 
 impl Default for TreeConfig {
@@ -220,6 +233,11 @@ impl Default for TreeConfig {
             sparse_trie_max_storage_tries: DEFAULT_SPARSE_TRIE_MAX_STORAGE_TRIES,
             disable_sparse_trie_cache_pruning: false,
             state_root_task_timeout: Some(DEFAULT_STATE_ROOT_TASK_TIMEOUT),
+            skip_state_root: false,
+            minimal_state: false,
+            execution_state_cache: true,
+            execution_cache_capacity: 2_000_000,
+            execution_cache_max_persist_gap: 64,
         }
     }
 }
@@ -286,6 +304,11 @@ impl TreeConfig {
             sparse_trie_max_storage_tries,
             disable_sparse_trie_cache_pruning: false,
             state_root_task_timeout,
+            skip_state_root: false,
+            minimal_state: false,
+            execution_state_cache: true,
+            execution_cache_capacity: 2_000_000,
+            execution_cache_max_persist_gap: 64,
         }
     }
 
@@ -654,6 +677,61 @@ impl TreeConfig {
     /// Setter for state root task timeout.
     pub const fn with_state_root_task_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.state_root_task_timeout = timeout;
+        self
+    }
+
+    /// Returns whether state root computation should be skipped.
+    pub const fn skip_state_root(&self) -> bool {
+        self.skip_state_root
+    }
+
+    /// Setter for whether to skip state root computation.
+    pub const fn with_skip_state_root(mut self, skip_state_root: bool) -> Self {
+        self.skip_state_root = skip_state_root;
+        self
+    }
+
+    /// Returns whether minimal state mode is enabled.
+    pub const fn minimal_state(&self) -> bool {
+        self.minimal_state
+    }
+
+    /// Setter for minimal state mode.
+    pub const fn with_minimal_state(mut self, minimal_state: bool) -> Self {
+        self.minimal_state = minimal_state;
+        self
+    }
+
+    /// Returns whether the execution state cache is enabled.
+    pub const fn execution_state_cache(&self) -> bool {
+        self.execution_state_cache
+    }
+
+    /// Setter for execution state cache.
+    pub const fn with_execution_state_cache(mut self, enabled: bool) -> Self {
+        self.execution_state_cache = enabled;
+        self
+    }
+
+    /// Returns the execution state cache capacity.
+    pub const fn execution_cache_capacity(&self) -> usize {
+        self.execution_cache_capacity
+    }
+
+    /// Setter for execution state cache capacity.
+    pub const fn with_execution_cache_capacity(mut self, capacity: usize) -> Self {
+        self.execution_cache_capacity = capacity;
+        self
+    }
+
+    /// Returns the execution cache max persist gap.
+    pub const fn execution_cache_max_persist_gap(&self) -> u64 {
+        self.execution_cache_max_persist_gap
+    }
+
+    /// Setter for execution cache max persist gap.
+    pub const fn with_execution_cache_max_persist_gap(mut self, gap: u64) -> Self {
+        self.execution_cache_max_persist_gap = gap;
         self
     }
 }
