@@ -1,0 +1,60 @@
+[package]
+name = "base-reth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Base (OP Stack) execution client built on reth"
+default-run = "base-reth"
+
+[lints]
+workspace = true
+
+[dependencies]
+# reth
+reth.workspace = true
+reth-ethereum-cli.workspace = true
+reth-node-ethereum.workspace = true
+reth-node-builder.workspace = true
+reth-node-core.workspace = true
+reth-cli-util.workspace = true
+
+# tracing
+tracing.workspace = true
+
+# misc
+clap = { workspace = true, features = ["derive", "env"] }
+
+# TODO(base): Add op-reth dependencies once op-rs/op-reth is compatible with reth v1.11.
+# As of 2026-02-17, op-rs/op-reth stable targets reth v1.10.2 with incompatible alloy
+# versions (1.4.3 vs our 1.6.3) and alloy-evm (0.26.3 vs our 0.27.2).
+# When op-reth updates, add:
+# reth-optimism-node = { git = "https://github.com/op-rs/op-reth", branch = "stable" }
+# reth-optimism-cli = { git = "https://github.com/op-rs/op-reth", branch = "stable" }
+# reth-optimism-chainspec = { git = "https://github.com/op-rs/op-reth", branch = "stable" }
+
+[features]
+default = [
+    "jemalloc",
+    "reth-node-core/asm-keccak",
+    "min-debug-logs",
+    "rocksdb",
+]
+
+jemalloc = [
+    "reth-cli-util/jemalloc",
+    "reth-node-core/jemalloc",
+]
+
+min-debug-logs = [
+    "tracing/release_max_level_debug",
+    "reth-node-core/min-debug-logs",
+]
+
+rocksdb = ["reth-node-core/rocksdb"]
+
+[[bin]]
+name = "base-reth"
+path = "src/main.rs"

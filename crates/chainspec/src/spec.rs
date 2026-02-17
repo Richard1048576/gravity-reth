@@ -39,7 +39,9 @@ use reth_ethereum_forks::{
     ChainHardforks, DisplayHardforks, EthereumHardfork, EthereumHardforks, ForkCondition,
     ForkFilter, ForkFilterKey, ForkHash, ForkId, Hardfork, Hardforks, Head, DEV_HARDFORKS,
 };
-use reth_network_peers::{holesky_nodes, hoodi_nodes, mainnet_nodes, sepolia_nodes, NodeRecord};
+use reth_network_peers::{
+    bsc_mainnet_nodes, holesky_nodes, hoodi_nodes, mainnet_nodes, sepolia_nodes, NodeRecord,
+};
 use reth_primitives_traits::{sync::LazyLock, BlockHeader, SealedHeader};
 
 /// Helper method building a [`Header`] given [`Genesis`] and [`ChainHardforks`].
@@ -777,6 +779,7 @@ impl<H: BlockHeader> ChainSpec<H> {
             C::Sepolia => Some(sepolia_nodes()),
             C::Holesky => Some(holesky_nodes()),
             C::Hoodi => Some(hoodi_nodes()),
+            C::BinanceSmartChain => Some(bsc_mainnet_nodes()),
             _ => None,
         }
     }

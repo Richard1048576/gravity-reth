@@ -9,6 +9,8 @@ exclude = [".github/"]
 
 [workspace]
 members = [
+    "bin/base-reth/",
+    "bin/bsc-reth/",
     "bin/reth-bench/",
     "bin/reth-bench-compare/",
     "bin/reth/",
@@ -122,6 +124,7 @@ members = [
     "crates/trie/parallel/",
     "crates/trie/sparse",
     "crates/trie/trie",
+    "crates/bsc/node",
     "examples/beacon-api-sidecar-fetcher/",
     "examples/beacon-api-sse/",
     "examples/bsc-p2p",
@@ -319,6 +322,7 @@ incremental = false
 [workspace.dependencies]
 # reth
 reth = { path = "bin/reth" }
+reth-bsc-node = { path = "crates/bsc/node" }
 reth-storage-rpc-provider = { path = "crates/storage/rpc-provider" }
 reth-basic-payload-builder = { path = "crates/payload/basic" }
 reth-bench = { path = "bin/reth-bench" }

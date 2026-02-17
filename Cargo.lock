@@ -1546,6 +1546,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "base-reth"
+version = "1.11.0"
+dependencies = [
+ "clap",
+ "reth",
+ "reth-cli-util",
+ "reth-ethereum-cli",
+ "reth-node-builder",
+ "reth-node-core",
+ "reth-node-ethereum",
+ "tracing",
+]
+
+[[package]]
 name = "base-x"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1951,6 +1965,26 @@ checksum = "bf88ba1141d185c399bee5288d850d63b8369520c1eafc32a0430b5b6c287bf4"
 dependencies = [
  "sha2",
  "tinyvec",
+]
+
+[[package]]
+name = "bsc-reth"
+version = "1.11.0"
+dependencies = [
+ "alloy-primitives",
+ "clap",
+ "reth",
+ "reth-bsc-node",
+ "reth-cli-util",
+ "reth-node-builder",
+ "reth-node-core",
+ "reth-node-ethereum",
+ "reth-node-metrics",
+ "reth-primitives",
+ "reth-revm",
+ "reth-rpc",
+ "reth-rpc-eth-types",
+ "tracing",
 ]
 
 [[package]]
@@ -7673,6 +7707,42 @@ dependencies = [
  "shlex",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "reth-bsc-node"
+version = "1.11.0"
+dependencies = [
+ "alloy-eips",
+ "alloy-primitives",
+ "alloy-rpc-types-engine",
+ "eyre",
+ "reth-chainspec",
+ "reth-cli",
+ "reth-engine-primitives",
+ "reth-ethereum-consensus",
+ "reth-ethereum-engine-primitives",
+ "reth-ethereum-primitives",
+ "reth-evm",
+ "reth-network",
+ "reth-network-peers",
+ "reth-node-api",
+ "reth-node-builder",
+ "reth-node-ethereum",
+ "reth-payload-primitives",
+ "reth-primitives-traits",
+ "reth-provider",
+ "reth-revm",
+ "reth-rpc",
+ "reth-rpc-api",
+ "reth-rpc-builder",
+ "reth-rpc-eth-api",
+ "reth-rpc-eth-types",
+ "reth-rpc-server-types",
+ "reth-tracing",
+ "reth-transaction-pool",
+ "revm",
+ "serde_json",
 ]
 
 [[package]]
