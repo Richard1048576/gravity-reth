@@ -125,6 +125,17 @@ members = [
     "crates/trie/sparse",
     "crates/trie/trie",
     "crates/bsc/node",
+    "crates/optimism/hardforks",
+    "crates/optimism/chainspec",
+    "crates/optimism/primitives",
+    "crates/optimism/consensus",
+    "crates/optimism/evm",
+    "crates/optimism/storage",
+    "crates/optimism/payload",
+    "crates/optimism/rpc",
+    "crates/optimism/txpool",
+    "crates/optimism/node",
+    "crates/optimism/flashblocks",
     "examples/beacon-api-sidecar-fetcher/",
     "examples/beacon-api-sse/",
     "examples/bsc-p2p",
@@ -323,6 +334,17 @@ incremental = false
 # reth
 reth = { path = "bin/reth" }
 reth-bsc-node = { path = "crates/bsc/node" }
+reth-optimism-forks = { path = "crates/optimism/hardforks", default-features = false }
+reth-optimism-chainspec = { path = "crates/optimism/chainspec", default-features = false }
+reth-optimism-primitives = { path = "crates/optimism/primitives", default-features = false }
+reth-optimism-consensus = { path = "crates/optimism/consensus", default-features = false }
+reth-optimism-evm = { path = "crates/optimism/evm", default-features = false }
+reth-optimism-storage = { path = "crates/optimism/storage", default-features = false }
+reth-optimism-payload-builder = { path = "crates/optimism/payload", default-features = false }
+reth-optimism-rpc = { path = "crates/optimism/rpc" }
+reth-optimism-txpool = { path = "crates/optimism/txpool" }
+reth-optimism-node = { path = "crates/optimism/node" }
+reth-optimism-flashblocks = { path = "crates/optimism/flashblocks" }
 reth-storage-rpc-provider = { path = "crates/storage/rpc-provider" }
 reth-basic-payload-builder = { path = "crates/payload/basic" }
 reth-bench = { path = "bin/reth-bench" }
