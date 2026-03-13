@@ -394,7 +394,8 @@ pub(crate) fn construct_dkg_transaction(
     //   (W=n), 100 MB supports ~312K validators; with average weight ~20 per validator (as in
     //   mainnet benchmarks), it supports ~15K validators. See gravity-aptos
     //   pvss::das::WeightedTranscript for size analysis.
-    const MAX_DKG_TRANSCRIPT_BYTES: usize = 100 * 1024 * 1024; // 100 MB
+    // GRETH-019: We cap the max transcript size at 512 KB to prevent DoS attacks via huge transactions
+    const MAX_DKG_TRANSCRIPT_BYTES: usize = 512 * 1024; // 512 KB
     if dkg_transcript.transcript_bytes.is_empty() {
         return Err("DKG transcript is empty".into());
     }

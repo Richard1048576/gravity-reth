@@ -239,6 +239,13 @@ where
                 BundleRetention::Reverts,
             );
         }
+        // NOTE (GRETH-007): The state root is not verified at execution time here.
+        // State root verification happens later when consensus confirms the block hash
+        // (verify_executed_block_hash in lib.rs). If consensus provides a hash, it is
+        // asserted equal to the EL-computed block hash (which includes the state root).
+        // A discrepancy caused by a Grevm parallel dependency detection bug would be
+        // caught at that point. When consensus passes None, the check is skipped and a
+        // warning is logged. See verify_executed_block_hash for the implementation.
         Ok(BlockExecutionResult { receipts, gas_used, requests })
     }
 

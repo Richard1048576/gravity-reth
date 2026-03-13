@@ -46,7 +46,9 @@ impl<K: Eq + Clone + Debug + Hash, V> Channel<K, V> {
     }
 
     async fn wait_inner(&self, key: K, timeout: Option<Duration>) -> Option<V> {
-        // Use block scoping to ensure MutexGuard is dropped before any `.await` point.
+        // GRETH-022: Scope the MutexGuard so it never crosses an .await point.
+        // The block `{ ... }` ensures the guard is dropped before any `.await`,
+        // making the unsafe `SendMutexGuard` wrapper unnecessary.
         // This is compiler-enforced: the guard cannot escape the block, so it is
         // impossible to hold it across a thread-migration boundary.
         let rx = {
@@ -68,9 +70,10 @@ impl<K: Eq + Clone + Debug + Hash, V> Channel<K, V> {
                     rx
                 }
             }
-            // `inner` (MutexGuard) is dropped here, before any `.await`.
+            // `inner` (MutexGuard) is dropped here at end of block, before any `.await`.
         };
 
+        // .await happens AFTER MutexGuard is dropped — compiler-enforced
         match timeout {
             Some(duration) => match tokio::time::timeout(duration, rx).await {
                 Ok(result) => result.ok(),

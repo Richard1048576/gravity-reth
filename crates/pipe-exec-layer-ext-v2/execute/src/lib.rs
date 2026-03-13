@@ -1227,7 +1227,16 @@ impl<Storage: GravityStorage> Core<Storage> {
     }
 }
 
-/// Return the invalid transaction indexes.
+/// Performance-only pre-filter for invalid transactions.
+///
+/// **This is NOT a security boundary.** Cross-sender dependencies are not
+/// visible during parallel per-sender validation because each sender's account
+/// state is a local copy of the pre-block state. This means the filter may
+/// produce false positives (marking valid transactions as invalid) but never
+/// false negatives (letting invalid ones through undetected by EVM execution).
+///
+/// The purpose of this filter is to avoid feeding obviously-invalid transactions
+/// (wrong nonce, insufficient balance) to the parallel EVM, reducing wasted work.
 fn filter_invalid_txs<DB: ParallelDatabase>(
     db: DB,
     txs: &[TransactionSigned],

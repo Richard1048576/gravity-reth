@@ -123,6 +123,7 @@ impl SystemTxnResult {
                 result: BlockExecutionResult {
                     receipts: vec![Receipt {
                         tx_type,
+                        // GRETH-025: use actual execution result instead of hardcoding true
                         success: self.result.is_success(),
                         cumulative_gas_used: gas_used,
                         logs: self.result.into_logs(),
@@ -176,6 +177,7 @@ impl SystemTxnResult {
             insert_position,
             Receipt {
                 tx_type: self.txn.tx_type(),
+                // GRETH-025: use actual execution result instead of hardcoding true
                 success: is_success,
                 cumulative_gas_used,
                 logs: self.result.into_logs(),
