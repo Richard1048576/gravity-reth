@@ -13,7 +13,9 @@ use alloy_evm::{
 use alloy_primitives::{map::HashMap, Address};
 use gravity_primitives::get_gravity_config;
 use grevm::{ParallelBundleState, ParallelState, Scheduler};
-use reth_chainspec::{EthChainSpec, EthereumHardfork, EthereumHardforks, Hardforks};
+use reth_chainspec::{
+    EthChainSpec, EthereumHardfork, EthereumHardforks, GravityHardfork, Hardforks,
+};
 use reth_ethereum_primitives::{Block, EthPrimitives, Receipt};
 use reth_evm::{
     execute::{
@@ -336,9 +338,12 @@ where
 }
 
 /// Standard Ethereum post-block balance increments: `PoW` block + ommer rewards (only pre-Paris,
-/// i.e. when `base_block_reward` is `Some`) plus Shanghai withdrawals. Intentionally carries **no**
-/// Gravity-specific gating: Gravity zeroes block rewards by having Paris active from genesis (see
-/// the call site in `apply_post_execution_changes`), so this naturally returns an empty map for it.
+/// i.e. when `base_block_reward` is `Some`) plus Shanghai withdrawals.
+///
+/// Gravity blocks do not have consensus-layer withdrawals and do not mint PoW coinbase rewards.
+/// Once the Gravity Alpha hardfork is active, keep Grevm's post-block balance increments empty even
+/// if an ordered block carries a non-empty withdrawals list or a malformed chainspec would otherwise
+/// make pre-Paris rewards active.
 #[inline]
 fn post_block_balance_increments<ChainSpec, Block>(
     chain_spec: &ChainSpec,
@@ -349,6 +354,13 @@ where
     Block: reth_primitives_traits::Block,
 {
     let mut balance_increments = HashMap::default();
+
+    if chain_spec
+        .gravity_hardforks()
+        .is_fork_active_at_timestamp(GravityHardfork::Alpha, block.header().timestamp())
+    {
+        return balance_increments;
+    }
 
     // Add block rewards if they are enabled.
     if let Some(base_block_reward) = calc::base_block_reward(chain_spec, block.header().number()) {
@@ -454,9 +466,10 @@ mod tests {
     use alloy_consensus::{constants::KECCAK_EMPTY, Header};
     use alloy_eips::{
         eip2935::{HISTORY_STORAGE_ADDRESS, HISTORY_STORAGE_CODE},
+        eip4895::{Withdrawal, Withdrawals},
         eip7685::EMPTY_REQUESTS_HASH,
     };
-    use alloy_primitives::{keccak256, Bytes, B256, U256};
+    use alloy_primitives::{address, keccak256, Bytes, B256, U256};
     use reth_chainspec::{
         ChainHardforks, ChainSpec, ChainSpecBuilder, ForkCondition, GravityHardfork, MAINNET,
     };
@@ -534,6 +547,39 @@ mod tests {
             ..Header::default()
         };
         RecoveredBlock::new_unhashed(Block { header, body: Default::default() }, vec![])
+    }
+
+    #[test]
+    fn gravity_alpha_post_block_increments_ignore_withdrawals_and_rewards() {
+        let chain_spec = alpha_active_chainspec(0);
+        let recipient = address!("4242424242424242424242424242424242424242");
+        let block = RecoveredBlock::new_unhashed(
+            Block {
+                header: Header {
+                    timestamp: 1,
+                    number: 1,
+                    beneficiary: address!("1111111111111111111111111111111111111111"),
+                    ..Header::default()
+                },
+                body: alloy_consensus::BlockBody {
+                    withdrawals: Some(Withdrawals::new(vec![Withdrawal {
+                        index: 0,
+                        validator_index: 0,
+                        address: recipient,
+                        amount: 1_234,
+                    }])),
+                    ..Default::default()
+                },
+            },
+            vec![],
+        );
+
+        let increments = post_block_balance_increments(chain_spec.as_ref(), &block);
+
+        assert!(
+            increments.is_empty(),
+            "Gravity Alpha blocks must not mint post-block withdrawal or PoW reward balances"
+        );
     }
 
     // --- U-1: WrapExecutor (revm path) -----------------------------------
