@@ -45,7 +45,7 @@ use reth_pipe_exec_layer_event_bus::{
 use reth_primitives::{EthPrimitives, Recovered};
 use reth_primitives_traits::{
     proofs::{self},
-    Block as _, RecoveredBlock,
+    Block as _, BlockBody as _, RecoveredBlock,
 };
 use reth_provider::{OriginalValuesKnown, PersistBlockCache, PERSIST_BLOCK_CACHE};
 use reth_rpc_eth_api::RpcTypes;
@@ -859,9 +859,8 @@ impl<Storage: GravityStorage> Core<Storage> {
             // execution?
             block.header.parent_beacon_block_root = Some(ordered_block.parent_id);
 
-            // TODO(nekomoto): fill `excess_blob_gas` and `blob_gas_used` fields
-            block.header.excess_blob_gas = Some(0);
-            block.header.blob_gas_used = Some(0);
+            block.header.excess_blob_gas =
+                evm_env.block_env.blob_excess_gas_and_price.map(|blob| blob.excess_blob_gas);
         }
 
         // Discard the invalid txs.
@@ -890,6 +889,9 @@ impl<Storage: GravityStorage> Core<Storage> {
         };
 
         block.body.transactions = txs;
+        if self.chain_spec.is_cancun_active_at_timestamp(block.timestamp) {
+            block.header.blob_gas_used = Some(block.body.blob_gas_used());
+        }
         (RecoveredBlock::new_unhashed(block, senders), txs_info)
     }
 
@@ -936,6 +938,8 @@ impl<Storage: GravityStorage> Core<Storage> {
         // / calldata / state / receipts / gas_used otherwise unchanged.
         // See system-tx gas-exempt design §3.2.
         let block_ts = evm_env.block_env.timestamp.saturating_to::<u64>();
+        let cancun_excess_blob_gas =
+            evm_env.block_env.blob_excess_gas_and_price.map(|blob| blob.excess_blob_gas);
         let system_tx_gas_price: u128 =
             if reth_chainspec::is_system_tx_gas_exempt(chain_spec, block_ts) {
                 0
@@ -1002,6 +1006,7 @@ impl<Storage: GravityStorage> Core<Storage> {
                     chain_spec,
                     ordered_block,
                     base_fee,
+                    cancun_excess_blob_gas,
                     bundle,
                     validators,
                 ),
@@ -1118,15 +1123,16 @@ impl<Storage: GravityStorage> Core<Storage> {
                                     chain_spec,
                                     ordered_block,
                                     base_fee,
+                                    cancun_excess_blob_gas,
                                     bundle,
                                     validators,
                                 ),
                             );
                         }
                         let mut epoch_change_results = Vec::with_capacity(
-                            usize::from(metadata_txn_result.is_some()) +
-                                validator_txn_results.len() +
-                                1,
+                            usize::from(metadata_txn_result.is_some())
+                                + validator_txn_results.len()
+                                + 1,
                         );
                         if let Some(metadata_txn_result) = metadata_txn_result {
                             epoch_change_results.push(metadata_txn_result);
@@ -1139,6 +1145,7 @@ impl<Storage: GravityStorage> Core<Storage> {
                                 chain_spec,
                                 ordered_block,
                                 base_fee,
+                                cancun_excess_blob_gas,
                                 bundle,
                                 validators,
                             ),
@@ -1300,8 +1307,8 @@ impl<Storage: GravityStorage> Core<Storage> {
         // against the executor). Pass it down so the user-tx filter reserves the same
         // amount, keeping `header.gas_used ≤ header.gas_limit` once metadata + validator
         // receipts get appended below. Closes gravity-audit#621.
-        let sum_system_gas = metadata_txn_result.as_ref().map_or(0, |r| r.result.gas_used()) +
-            validator_txn_results.iter().map(|r| r.result.gas_used()).sum::<u64>();
+        let sum_system_gas = metadata_txn_result.as_ref().map_or(0, |r| r.result.gas_used())
+            + validator_txn_results.iter().map(|r| r.result.gas_used()).sum::<u64>();
         let state_for_block = self.storage.get_state_view().unwrap();
         let (block, txs_info) = self.create_block_for_executor(
             ordered_block,
