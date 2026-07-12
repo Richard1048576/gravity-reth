@@ -343,11 +343,11 @@ impl std::fmt::Debug for PersistBlockCacheInner {
 
 impl PersistBlockCacheInner {
     fn entry_count(&self) -> usize {
-        self.accounts.len() +
-            self.contracts.len() +
-            self.storage.len() +
-            self.account_trie.len() +
-            self.storage_trie.len()
+        self.accounts.len()
+            + self.contracts.len()
+            + self.storage.len()
+            + self.account_trie.len()
+            + self.storage_trie.len()
     }
 
     /// The highest persisted block. Entries at or below this are safe to evict (the DB owns them).
@@ -485,8 +485,26 @@ impl PersistBlockCache {
         }
     }
 
-    /// Cache latest read bytecode
+    /// Cache latest read bytecode.
+    ///
+    /// Read-through contract bytecode comes from the persisted DB, so it can be dropped as soon as
+    /// the contract cache is at capacity. Enforce the contract limit synchronously on insertion
+    /// instead of relying on the background eviction thread; otherwise a burst of distinct contract
+    /// calls can retain unbounded bytecode until the next daemon tick.
     pub fn cache_byte_code(&self, code_hash: B256, byte_code: Bytecode) {
+        if self.contracts.contains_key(&code_hash) {
+            return;
+        }
+
+        if self.contracts.len() >= CACHE_CONTRACTS_THRESHOLD {
+            let persist_height = self.persist_height();
+            self.contracts.retain(|_, t| !t.evictable(persist_height));
+
+            if self.contracts.len() >= CACHE_CONTRACTS_THRESHOLD {
+                return;
+            }
+        }
+
         if let dashmap::Entry::Vacant(entry) = self.contracts.entry(code_hash) {
             entry.insert(Tip::new(byte_code, self.persist_height()));
         }
@@ -612,9 +630,9 @@ impl PersistBlockCache {
                 // so we can update it.
                 let not_destroyed_and_changed = !was_destroyed && slot_value.is_changed();
 
-                if is_value_known.is_not_known() ||
-                    destroyed_and_not_zero ||
-                    not_destroyed_and_changed
+                if is_value_known.is_not_known()
+                    || destroyed_and_not_zero
+                    || not_destroyed_and_changed
                 {
                     let value = slot_value.present_value;
                     if value.is_zero() {
@@ -892,5 +910,33 @@ mod tests {
         assert_eq!(layer.get(&1), None);
         layer.cache_read(1, 42, 7);
         assert_eq!(layer.get(&1), Some(Some(42)));
+    }
+
+    #[test]
+    fn cache_byte_code_enforces_contract_threshold_for_db_reads() {
+        let cache = test_cache();
+        cache.persist_tip(10);
+
+        for n in 0..=CACHE_CONTRACTS_THRESHOLD {
+            cache.cache_byte_code(addr(n as u64), Bytecode::default());
+        }
+
+        assert!(cache.contracts.len() <= CACHE_CONTRACTS_THRESHOLD);
+        assert!(cache.bytecode_by_hash(&addr(CACHE_CONTRACTS_THRESHOLD as u64)).is_some());
+    }
+
+    #[test]
+    fn cache_byte_code_preserves_unpersisted_contracts_when_full() {
+        let cache = test_cache();
+
+        for n in 0..CACHE_CONTRACTS_THRESHOLD {
+            cache.contracts.insert(addr(n as u64), Tip::new(Bytecode::default(), 1));
+        }
+
+        cache.cache_byte_code(addr(CACHE_CONTRACTS_THRESHOLD as u64), Bytecode::default());
+
+        assert_eq!(cache.contracts.len(), CACHE_CONTRACTS_THRESHOLD);
+        assert!(cache.bytecode_by_hash(&addr(CACHE_CONTRACTS_THRESHOLD as u64)).is_none());
+        assert!(cache.bytecode_by_hash(&addr(0)).is_some());
     }
 }
