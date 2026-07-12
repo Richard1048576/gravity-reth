@@ -51,7 +51,7 @@ use reth_provider::{OriginalValuesKnown, PersistBlockCache, PERSIST_BLOCK_CACHE}
 use reth_rpc_eth_api::RpcTypes;
 use revm::DatabaseRef;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -69,6 +69,8 @@ use tokio::sync::{
     oneshot, Mutex,
 };
 use tracing::*;
+
+const MAX_PENDING_ORDERED_BLOCKS: u64 = 1024;
 
 use crate::{
     mint_precompile::create_mint_token_precompile,
@@ -434,34 +436,102 @@ struct Core<Storage: GravityStorage> {
 impl<Storage: GravityStorage> PipeExecService<Storage> {
     async fn run(mut self) {
         self.core.init_storage(self.execution_args_rx.await.unwrap());
+        let (processed_block_tx, mut processed_block_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut pending_ordered_blocks = HashSet::new();
         loop {
             let start_time = Instant::now();
-            let block = match self.ordered_block_rx.recv().await {
-                Some(block) => block,
-                None => {
-                    self.core.execute_block_barrier.close();
-                    self.core.merklize_barrier.close();
-                    self.core.make_canonical_barrier.close();
-                    return;
+            tokio::select! {
+                Some(processed_block) = processed_block_rx.recv() => {
+                    pending_ordered_blocks.remove(&processed_block);
                 }
-            };
-            let elapsed = start_time.elapsed();
-            self.core.metrics.recv_block_time_diff.record(elapsed);
-            info!(target: "PipeExecService.run",
-                id=?block.id(),
-                parent_id=?block.parent_id(),
-                number=?block.number(),
-                epoch=?block.epoch(),
-                elapsed=?elapsed,
-                "new ordered block"
-            );
+                block = self.ordered_block_rx.recv() => {
+                    let block = match block {
+                        Some(block) => block,
+                        None => {
+                            self.core.execute_block_barrier.close();
+                            self.core.merklize_barrier.close();
+                            self.core.make_canonical_barrier.close();
+                            return;
+                        }
+                    };
+                    let elapsed = start_time.elapsed();
+                    self.core.metrics.recv_block_time_diff.record(elapsed);
+                    info!(target: "PipeExecService.run",
+                        id=?block.id(),
+                        parent_id=?block.parent_id(),
+                        number=?block.number(),
+                        epoch=?block.epoch(),
+                        elapsed=?elapsed,
+                        "new ordered block"
+                    );
 
-            let core = self.core.clone();
-            tokio::spawn(async move {
-                let start_time = Instant::now();
-                core.process(block).await;
-                core.metrics.process_block_duration.record(start_time.elapsed());
-            });
+                    if let ReceivedBlock::OrderedBlock(ordered_block) = &block {
+                        let current_epoch = self.core.epoch();
+                        let execute_height = self.core.execute_height();
+                        let pending_key = (ordered_block.epoch, ordered_block.number);
+                        if ordered_block.epoch < current_epoch || ordered_block.number <= execute_height {
+                            warn!(target: "PipeExecService.run",
+                                block_number=?ordered_block.number,
+                                block_id=?ordered_block.id,
+                                block_epoch=?ordered_block.epoch,
+                                current_epoch=?current_epoch,
+                                execute_height=?execute_height,
+                                "drop stale ordered block"
+                            );
+                            continue;
+                        }
+                        if ordered_block.epoch == current_epoch &&
+                            ordered_block.number > execute_height.saturating_add(MAX_PENDING_ORDERED_BLOCKS)
+                        {
+                            warn!(target: "PipeExecService.run",
+                                block_number=?ordered_block.number,
+                                block_id=?ordered_block.id,
+                                block_epoch=?ordered_block.epoch,
+                                execute_height=?execute_height,
+                                max_pending_ordered_blocks=?MAX_PENDING_ORDERED_BLOCKS,
+                                "drop ordered block beyond pending window"
+                            );
+                            continue;
+                        }
+                        if pending_ordered_blocks.len() >= MAX_PENDING_ORDERED_BLOCKS as usize {
+                            warn!(target: "PipeExecService.run",
+                                block_number=?ordered_block.number,
+                                block_id=?ordered_block.id,
+                                block_epoch=?ordered_block.epoch,
+                                pending_ordered_blocks=?pending_ordered_blocks.len(),
+                                max_pending_ordered_blocks=?MAX_PENDING_ORDERED_BLOCKS,
+                                "drop ordered block because pending set is full"
+                            );
+                            continue;
+                        }
+                        if !pending_ordered_blocks.insert(pending_key) {
+                            warn!(target: "PipeExecService.run",
+                                block_number=?ordered_block.number,
+                                block_id=?ordered_block.id,
+                                block_epoch=?ordered_block.epoch,
+                                "drop duplicate pending ordered block"
+                            );
+                            continue;
+                        }
+                    }
+
+                    let core = self.core.clone();
+                    let processed_block_tx = processed_block_tx.clone();
+                    tokio::spawn(async move {
+                        let pending_key = if let ReceivedBlock::OrderedBlock(ordered_block) = &block {
+                            Some((ordered_block.epoch, ordered_block.number))
+                        } else {
+                            None
+                        };
+                        let start_time = Instant::now();
+                        core.process(block).await;
+                        core.metrics.process_block_duration.record(start_time.elapsed());
+                        if let Some(pending_key) = pending_key {
+                            let _ = processed_block_tx.send(pending_key);
+                        }
+                    });
+                }
+            }
         }
     }
 }
