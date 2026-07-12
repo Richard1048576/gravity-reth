@@ -202,6 +202,25 @@ pub(crate) fn new_system_call_txn(
             value: U256::ZERO,
             input,
         }),
-        Signature::new(U256::ZERO, U256::ZERO, false),
+        // Use a recoverable placeholder signature so system transactions remain
+        // importable from canonical block bytes. The execution path still injects
+        // SYSTEM_CALLER explicitly when building the EVM transaction environment.
+        Signature::test_signature(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reth_primitives_traits::SignedTransaction;
+
+    #[test]
+    fn system_call_transactions_have_recoverable_signature() {
+        let txn = new_system_call_txn(BLOCK_ADDR, 0, 1, Bytes::new());
+
+        assert!(
+            txn.try_recover_unchecked().is_ok(),
+            "system transactions inserted into canonical blocks must be sender-recoverable"
+        );
+    }
 }
