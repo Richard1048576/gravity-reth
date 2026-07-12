@@ -101,6 +101,8 @@ pub trait EthCall: EstimateCall + Call + LoadPendingBlock + LoadBlock + FullEthA
                     State::builder().with_database(StateProviderDatabase::new(state)).build();
                 let mut blocks: Vec<SimulatedBlock<RpcBlock<Self::NetworkTypes>>> =
                     Vec::with_capacity(block_state_calls.len());
+                let total_gas_limit = this.call_gas_limit();
+                let mut gas_used = 0u64;
                 for block in block_state_calls {
                     let mut evm_env = this
                         .evm_config()
@@ -138,6 +140,10 @@ pub trait EthCall: EstimateCall + Call + LoadPendingBlock + LoadBlock + FullEthA
 
                     let block_gas_limit = evm_env.block_env.gas_limit;
                     let chain_id = evm_env.cfg_env.chain_id;
+
+                    if total_gas_limit.saturating_sub(gas_used) < block_gas_limit {
+                        return Err(EthApiError::other(EthSimulateError::GasLimitReached).into())
+                    }
 
                     let default_gas_limit = {
                         let total_specified_gas =
@@ -206,6 +212,7 @@ pub trait EthCall: EstimateCall + Call + LoadPendingBlock + LoadBlock + FullEthA
                         )?
                     };
 
+                    gas_used = gas_used.saturating_add(result.block.gas_used());
                     parent = result.block.clone_sealed_header();
 
                     let block = simulate::build_simulated_block(
