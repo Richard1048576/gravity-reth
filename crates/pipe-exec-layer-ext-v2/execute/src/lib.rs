@@ -693,6 +693,9 @@ impl<Storage: GravityStorage> Core<Storage> {
             // declarations.
             assert_eq!(self.epoch.fetch_max(epoch, Ordering::Release), block_epoch);
         }
+        if let Some(randomness) = block.header.mix_hash() {
+            self.storage.insert_block_randomness(block_number, randomness);
+        }
         // SAFETY: Release ordering is sufficient — the execute_block_barrier
         // serializes writers; only the timeout branch reads these concurrently (harmlessly).
         assert_eq!(self.execute_height.fetch_add(1, Ordering::Release), block_number - 1);

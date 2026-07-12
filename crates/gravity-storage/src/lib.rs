@@ -25,6 +25,9 @@ pub trait GravityStorage: Send + Sync + 'static {
     /// Get the `block_id` by `block_number`
     fn get_block_id(&self, block_number: u64) -> Option<B256>;
 
+    /// Insert the post-Merge randomness (`mix_hash` / `prev_randao`) for an executed block.
+    fn insert_block_randomness(&self, block_number: u64, randomness: B256);
+
     /// Update canonical to `block_number` and reclaim the intermediate result cache
     fn update_canonical(&self, block_number: u64, block_hash: B256);
 

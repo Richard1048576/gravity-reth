@@ -49,6 +49,7 @@ pub struct BlockViewStorage<Client> {
     client: Client,
     cache: PersistBlockCache,
     block_number_to_id: Arc<Mutex<BTreeMap<u64, B256>>>,
+    block_number_to_randomness: Arc<Mutex<BTreeMap<u64, B256>>>,
 }
 
 impl<Client> BlockViewStorage<Client>
@@ -62,7 +63,12 @@ where
 {
     /// Create a new `BlockViewStorage`
     pub fn new(client: Client) -> Self {
-        Self { client, cache: PERSIST_BLOCK_CACHE.clone(), block_number_to_id: Default::default() }
+        Self {
+            client,
+            cache: PERSIST_BLOCK_CACHE.clone(),
+            block_number_to_id: Default::default(),
+            block_number_to_randomness: Default::default(),
+        }
     }
 }
 
@@ -99,6 +105,10 @@ where
         self.block_number_to_id.lock().unwrap().get(&block_number).copied()
     }
 
+    fn insert_block_randomness(&self, block_number: u64, randomness: B256) {
+        self.block_number_to_randomness.lock().unwrap().insert(block_number, randomness);
+    }
+
     fn update_canonical(&self, block_number: u64, _block_hash: B256) {
         if block_number <= BLOCK_HASH_HISTORY {
             return;
@@ -115,9 +125,23 @@ where
                 break;
             }
         }
+
+        let mut block_number_to_randomness = self.block_number_to_randomness.lock().unwrap();
+        while let Some((&first_key, _)) = block_number_to_randomness.first_key_value() {
+            if first_key <= target_block_number {
+                block_number_to_randomness.pop_first();
+            } else {
+                break;
+            }
+        }
     }
 
     fn randomness_by_height(&self, block_number: u64) -> ProviderResult<Option<B256>> {
+        if let Some(randomness) = self.block_number_to_randomness.lock().unwrap().get(&block_number)
+        {
+            return Ok(Some(*randomness))
+        }
+
         let provider = self.client.database_provider_ro()?;
         Ok(provider.header_by_number(block_number)?.and_then(|header| header.mix_hash()))
     }
@@ -439,5 +463,28 @@ mod tests {
         let storage = BlockViewStorage::new(TestClient { provider });
 
         assert_eq!(GravityStorage::randomness_by_height(&storage, 8).unwrap(), None);
+    }
+
+    #[test]
+    fn randomness_by_height_returns_unpersisted_executed_block_randomness() {
+        let provider = MockEthProvider::new();
+        let persisted_randomness = B256::repeat_byte(0x22);
+        let unpersisted_randomness = B256::repeat_byte(0x33);
+        provider.add_header(
+            B256::repeat_byte(0x11),
+            Header { number: 7, mix_hash: persisted_randomness, ..Default::default() },
+        );
+        let storage = BlockViewStorage::new(TestClient { provider });
+
+        storage.insert_block_randomness(8, unpersisted_randomness);
+
+        assert_eq!(
+            GravityStorage::randomness_by_height(&storage, 8).unwrap(),
+            Some(unpersisted_randomness)
+        );
+        assert_eq!(
+            GravityStorage::randomness_by_height(&storage, 7).unwrap(),
+            Some(persisted_randomness)
+        );
     }
 }
