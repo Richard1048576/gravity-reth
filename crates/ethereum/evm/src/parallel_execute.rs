@@ -97,9 +97,50 @@ where
             BlockExecutionError::Internal(InternalBlockExecutionError::Other(Box::new(e)))
         })?;
 
-        let mut txs = Vec::with_capacity(block.transaction_count());
-        for tx in block.transactions_recovered() {
+        let block_ts: u64 = evm_env.block_env.timestamp.saturating_to();
+        let replay_system_tx_prefix =
+            crate::is_system_tx_gas_exempt(self.chain_spec.as_ref(), block_ts);
+
+        let mut receipts = Vec::with_capacity(block.transaction_count());
+        let mut cumulative_gas_used = 0;
+        let mut first_parallel_tx = 0;
+
+        // Pipe execution persists protocol-injected Gravity system transactions as a
+        // SYSTEM_CALLER-signed prefix, but executes them with the same gas-exempt cfg
+        // used by `transact_system_txn`. Replaying the persisted block must therefore
+        // route that prefix through `transact_system_txn` too; otherwise a zero-gas-price
+        // metadata transaction is treated as an ordinary user transaction and can fail
+        // base-fee/balance validation or produce different receipts/state.
+        if replay_system_tx_prefix {
+            for tx in block.transactions_recovered() {
+                if tx.signer() != crate::SYSTEM_CALLER {
+                    break
+                }
+
+                let tx_env = self.evm_config.tx_env(tx);
+                let result = self.transact_system_txn(evm_env.clone(), Vec::new(), tx_env)?;
+                cumulative_gas_used += result.gas_used();
+                receipts.push(Receipt {
+                    tx_type: tx.tx_type(),
+                    success: result.is_success(),
+                    cumulative_gas_used,
+                    logs: result.into_logs(),
+                });
+                first_parallel_tx += 1;
+            }
+        }
+
+        let mut txs =
+            Vec::with_capacity(block.transaction_count().saturating_sub(first_parallel_tx));
+        let mut tx_types =
+            Vec::with_capacity(block.transaction_count().saturating_sub(first_parallel_tx));
+        for tx in block.transactions_recovered().skip(first_parallel_tx) {
+            tx_types.push(tx.tx_type());
             txs.push(self.evm_config.tx_env(tx));
+        }
+
+        if txs.is_empty() {
+            return Ok(ExecuteOutput { receipts, gas_used: cumulative_gas_used });
         }
 
         let txs = Arc::new(txs);
@@ -123,7 +164,7 @@ where
                 // filter is supposed to keep out, masking the original diagnostics).
                 let hash = block
                     .transactions_with_sender()
-                    .nth(e.txid)
+                    .nth(first_parallel_tx + e.txid)
                     .map(|(_, tx)| tx.recalculate_hash())
                     .unwrap_or_default();
                 BlockExecutionError::Internal(InternalBlockExecutionError::EVM {
@@ -136,11 +177,7 @@ where
 
         self.state = Some(state);
 
-        let mut receipts = Vec::with_capacity(results.len());
-        let mut cumulative_gas_used = 0;
-        for (result, tx_type) in
-            results.into_iter().zip(block.body().transactions().map(|tx| tx.tx_type()))
-        {
+        for (result, tx_type) in results.into_iter().zip(tx_types) {
             cumulative_gas_used += result.gas_used();
             receipts.push(Receipt {
                 tx_type,
