@@ -45,7 +45,7 @@ use reth_pipe_exec_layer_event_bus::{
 use reth_primitives::{EthPrimitives, Recovered};
 use reth_primitives_traits::{
     proofs::{self},
-    Block as _, RecoveredBlock,
+    Block as _, RecoveredBlock, SignedTransaction,
 };
 use reth_provider::{OriginalValuesKnown, PersistBlockCache, PERSIST_BLOCK_CACHE};
 use reth_rpc_eth_api::RpcTypes;
@@ -818,7 +818,11 @@ impl<Storage: GravityStorage> Core<Storage> {
         // validator receipts are appended. Closes gravity-audit#621.
         sum_system_gas: u64,
     ) -> (RecoveredBlock<Block>, Vec<TxInfo>) {
-        assert_eq!(ordered_block.transactions.len(), ordered_block.senders.len());
+        let recovered_senders = ordered_block
+            .transactions
+            .iter()
+            .map(|tx| tx.recover_signer().expect("failed to recover ordered transaction sender"))
+            .collect::<Vec<_>>();
         let mut block = Block {
             header: Header {
                 // Transient carrier: feeds parent_id to the upstream EIP-2935 SystemCaller
@@ -873,7 +877,7 @@ impl<Storage: GravityStorage> Core<Storage> {
         let (txs, senders, txs_info) = self.filter_invalid_txs(
             state,
             ordered_block.transactions,
-            ordered_block.senders,
+            recovered_senders,
             base_fee,
             user_gas_budget,
             block.timestamp,
