@@ -19,7 +19,8 @@ use gravity_api_types::{
 use metrics::PipeExecLayerMetrics;
 
 use alloy_consensus::{
-    constants::EMPTY_WITHDRAWALS, BlockHeader, Header, Transaction, EMPTY_OMMER_ROOT_HASH,
+    constants::EMPTY_WITHDRAWALS, transaction::SignerRecoverable, BlockHeader, Header, Transaction,
+    EMPTY_OMMER_ROOT_HASH,
 };
 use alloy_eips::{eip4895::Withdrawals, merge::BEACON_NONCE, BlockNumberOrTag};
 use alloy_primitives::{Address, TxHash, B256, U256};
@@ -818,7 +819,20 @@ impl<Storage: GravityStorage> Core<Storage> {
         // validator receipts are appended. Closes gravity-audit#621.
         sum_system_gas: u64,
     ) -> (RecoveredBlock<Block>, Vec<TxInfo>) {
-        assert_eq!(ordered_block.transactions.len(), ordered_block.senders.len());
+        assert_eq!(
+            ordered_block.transactions.len(),
+            ordered_block.senders.len(),
+            "ordered block transaction and sender counts must match"
+        );
+        let recovered_senders = ordered_block
+            .transactions
+            .iter()
+            .map(|tx| tx.recover_signer().expect("ordered block transaction signature is invalid"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            recovered_senders, ordered_block.senders,
+            "ordered block senders must match recovered transaction signers"
+        );
         let mut block = Block {
             header: Header {
                 // Transient carrier: feeds parent_id to the upstream EIP-2935 SystemCaller
@@ -873,7 +887,7 @@ impl<Storage: GravityStorage> Core<Storage> {
         let (txs, senders, txs_info) = self.filter_invalid_txs(
             state,
             ordered_block.transactions,
-            ordered_block.senders,
+            recovered_senders,
             base_fee,
             user_gas_budget,
             block.timestamp,
