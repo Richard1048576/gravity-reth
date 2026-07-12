@@ -942,17 +942,13 @@ where
                             let mut module = eth_api.clone().into_rpc();
                             module.merge(eth_filter.clone().into_rpc()).expect("No conflicts");
                             module.merge(eth_pubsub.clone().into_rpc()).expect("No conflicts");
-                            module
-                                .merge(
-                                    EthBundle::new(
-                                        eth_api.clone(),
-                                        self.blocking_pool_guard.clone(),
-                                    )
-                                    .into_rpc(),
-                                )
-                                .expect("No conflicts");
 
                             module.into()
+                        }
+                        RethRpcModule::EthCallBundle => {
+                            EthBundle::new(eth_api.clone(), self.blocking_pool_guard.clone())
+                                .into_rpc()
+                                .into()
                         }
                         RethRpcModule::Net => {
                             NetApi::new(self.network.clone(), eth_api.clone()).into_rpc().into()

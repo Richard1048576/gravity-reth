@@ -303,6 +303,8 @@ pub enum RethRpcModule {
     Debug,
     /// `eth_` module
     Eth,
+    /// `eth_callBundle` module
+    EthCallBundle,
     /// `net_` module
     Net,
     /// `trace_` module
@@ -337,6 +339,7 @@ impl RethRpcModule {
         Self::Admin,
         Self::Debug,
         Self::Eth,
+        Self::EthCallBundle,
         Self::Net,
         Self::Trace,
         Self::Txpool,
@@ -396,6 +399,7 @@ impl AsRef<str> for RethRpcModule {
             Self::Admin => "admin",
             Self::Debug => "debug",
             Self::Eth => "eth",
+            Self::EthCallBundle => "eth-call-bundle",
             Self::Net => "net",
             Self::Trace => "trace",
             Self::Txpool => "txpool",
@@ -418,6 +422,7 @@ impl FromStr for RethRpcModule {
             "admin" => Self::Admin,
             "debug" => Self::Debug,
             "eth" => Self::Eth,
+            "eth-call-bundle" | "eth_callBundle" | "eth_call_bundle" => Self::EthCallBundle,
             "net" => Self::Net,
             "trace" => Self::Trace,
             "txpool" => Self::Txpool,
@@ -569,6 +574,7 @@ mod test {
 
         assert_eq!(all_modules.len(), RethRpcModule::variant_count());
         assert_eq!(standard.len(), 3);
+        assert!(!standard.contains(&RethRpcModule::EthCallBundle));
         assert_eq!(selection.len(), 2);
     }
 
@@ -790,6 +796,13 @@ mod test {
         let selection = result.unwrap();
         assert!(selection.contains(&RethRpcModule::Other("invalid".to_string())));
         assert!(selection.contains(&RethRpcModule::Other("unknown".to_string())));
+
+        // Test opt-in eth_callBundle selection aliases
+        for alias in ["eth-call-bundle", "eth_callBundle", "eth_call_bundle"] {
+            let result = RpcModuleSelection::from_str(alias);
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), RpcModuleSelection::from([RethRpcModule::EthCallBundle]));
+        }
 
         // Test single valid selection: "eth"
         let result = RpcModuleSelection::from_str("eth");
