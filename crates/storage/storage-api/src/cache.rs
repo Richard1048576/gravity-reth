@@ -426,35 +426,15 @@ impl PersistBlockCache {
         self.persist_block_number.lock().unwrap().take();
     }
 
-    /// Wait if there's a large gap between executed block and persist block
-    ///
-    /// # Arguments
-    /// * `timeout_ms` - Optional timeout in milliseconds. If None, waits indefinitely.
-    pub fn wait_persist_gap(&self, timeout_ms: Option<u64>) {
+    /// Wait until there is no large gap between executed blocks and persisted blocks.
+    pub fn wait_persist_gap(&self) {
         let (lock, cvar) = self.persist_wait.as_ref();
         let mut large_gap = lock.lock().unwrap();
         let mut wait_duration = None;
-        let start_time = Instant::now();
 
         while *large_gap {
-            if wait_duration.is_none() {
-                wait_duration = Some(start_time);
-            }
-            if let Some(timeout_ms) = timeout_ms {
-                let elapsed = start_time.elapsed();
-                let timeout_duration = Duration::from_millis(timeout_ms);
-                if elapsed >= timeout_duration {
-                    break;
-                }
-                let remaining = timeout_duration - elapsed;
-                let result = cvar.wait_timeout(large_gap, remaining).unwrap();
-                large_gap = result.0;
-                if result.1.timed_out() {
-                    break;
-                }
-            } else {
-                large_gap = cvar.wait(large_gap).unwrap();
-            }
+            wait_duration.get_or_insert_with(Instant::now);
+            large_gap = cvar.wait(large_gap).unwrap();
         }
 
         if let Some(wait_duration) = wait_duration {

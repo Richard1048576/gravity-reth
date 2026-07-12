@@ -635,8 +635,8 @@ impl<Storage: GravityStorage> Core<Storage> {
         }
         self.storage.insert_block_id(block_number, block_id);
 
-        // Wait for persist gap with a reasonable timeout (2 seconds)
-        self.cache.wait_persist_gap(Some(2000));
+        // Wait for persistence to catch up before executing more blocks.
+        self.cache.wait_persist_gap();
         let start_time = Instant::now();
         let ExecuteOrderedBlockResult {
             mut block,
