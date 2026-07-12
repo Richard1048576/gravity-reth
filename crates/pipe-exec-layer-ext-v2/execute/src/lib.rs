@@ -155,8 +155,9 @@ fn extract_gravity_events_from_system_receipts(
                         // gaptos reads gravity:// oracle progress from Any.data as a raw
                         // 16-byte nonce. The GravityEvent adapter only preserves raw bytes
                         // for known JWK wrappers, so this entry is a nonce carrier rather
-                        // than an RSA key.
-                        type_name: "0x1::jwks::RSA_JWK".to_string(),
+                        // than an RSA key. Use the unsupported wrapper so nonce carriers
+                        // cannot be confused with BCS-encoded RSA JWKs if replayed.
+                        type_name: "0x1::jwks::Unsupported_JWK".to_string(),
                         data: nonce.to_be_bytes().to_vec(),
                     }],
                 }

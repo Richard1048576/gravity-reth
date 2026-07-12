@@ -176,11 +176,11 @@ pub fn construct_oracle_record_transaction(
             jwk_count = provider_jwks.jwks.len(),
             "RSA JWK path entered unexpectedly — this code path should be unreachable"
         );
-        panic!(
-            "RSA JWK oracle record path is unreachable: issuer={}, jwk_count={}",
+        return Err(format!(
+            "RSA JWK oracle record path is unsupported: issuer={}, jwk_count={}",
             issuer_str,
             provider_jwks.jwks.len()
-        );
+        ));
     } else if is_unsupported_jwk(first_jwk) {
         // Blockchain/oracle events - use recordBatch for ALL logs
         construct_blockchain_batch_transaction(provider_jwks, nonce, gas_price)
@@ -320,3 +320,53 @@ fn construct_blockchain_batch_transaction(
 }
 
 // convert_oracle_rsa_to_api_jwk is now provided by super::types
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn provider_with_jwk_type(type_name: &str) -> ProviderJWKs {
+        ProviderJWKs {
+            issuer: b"gravity://1/42".to_vec(),
+            version: 7,
+            jwks: vec![JWKStruct {
+                type_name: type_name.to_string(),
+                data: 7_u128.to_be_bytes().to_vec(),
+            }],
+        }
+    }
+
+    #[test]
+    fn rsa_jwk_is_rejected_without_panicking() {
+        let err = match construct_oracle_record_transaction(
+            provider_with_jwk_type("0x1::jwks::RSA_JWK"),
+            0,
+            0,
+        ) {
+            Ok(_) => panic!("RSA JWK path should be rejected as a recoverable error"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.contains("RSA JWK oracle record path is unsupported"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn unsupported_nonce_carrier_is_rejected_without_panicking_when_replayed() {
+        let err = match construct_oracle_record_transaction(
+            provider_with_jwk_type("0x1::jwks::Unsupported_JWK"),
+            0,
+            0,
+        ) {
+            Ok(_) => panic!("raw nonce carrier is not ABI event data and should be rejected"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.contains("Failed to extract nonce, block_number, and payload"),
+            "unexpected error: {err}"
+        );
+    }
+}
