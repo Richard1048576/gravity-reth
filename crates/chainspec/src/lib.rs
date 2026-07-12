@@ -29,8 +29,8 @@ pub use reth_ethereum_forks::*;
 
 pub use api::EthChainSpec;
 pub use gravity::{
-    is_gravity_system_caller, is_system_tx_gas_exempt, system_txs_form_head_prefix,
-    GravityHardfork, SYSTEM_CALLER,
+    is_gravity_system_caller, is_system_tx_gas_exempt, is_system_tx_receipt_status_fork_active,
+    system_txs_form_head_prefix, GravityHardfork, SYSTEM_CALLER,
 };
 pub use info::ChainInfo;
 #[cfg(any(test, feature = "test-utils"))]

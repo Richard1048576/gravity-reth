@@ -1349,13 +1349,21 @@ impl<Storage: GravityStorage> Core<Storage> {
         let has_metadata_result = metadata_txn_result.is_some();
         let n_system_receipts = usize::from(has_metadata_result) + validator_txn_results.len();
         if let Some(metadata_txn_result) = metadata_txn_result {
-            metadata_txn_result.insert_to_executed_ordered_block_result(&mut result, 0);
+            metadata_txn_result.insert_to_executed_ordered_block_result(
+                &mut result,
+                &self.chain_spec,
+                0,
+            );
         }
         // Insert validator transaction results one by one after the metadata transaction,
         // or at the front if the metadata transaction failed before producing a receipt.
         for (index, validator_result) in validator_txn_results.into_iter().enumerate() {
             let insert_position = usize::from(has_metadata_result) + index;
-            validator_result.insert_to_executed_ordered_block_result(&mut result, insert_position);
+            validator_result.insert_to_executed_ordered_block_result(
+                &mut result,
+                &self.chain_spec,
+                insert_position,
+            );
         }
         debug!(target: "execute_ordered_block",
             number=?result.block.number,

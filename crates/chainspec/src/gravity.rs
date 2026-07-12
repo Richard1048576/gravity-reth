@@ -15,6 +15,8 @@ hardfork!(
         Gamma,
         /// Delta hardfork: activate Governance contract by setting Ownable._owner
         Delta,
+        /// Epsilon hardfork: encode protocol system-transaction receipt status from actual execution result
+        Epsilon,
     }
 );
 
@@ -54,6 +56,21 @@ pub fn is_gravity_system_caller(addr: Address) -> bool {
 #[inline]
 pub fn is_system_tx_gas_exempt<S: EthChainSpec>(chain_spec: &S, block_ts: u64) -> bool {
     chain_spec.gravity_hardforks().is_fork_active_at_timestamp(GravityHardfork::Alpha, block_ts)
+}
+
+/// Returns `true` when system-transaction receipts must encode the actual EVM
+/// execution status instead of the legacy always-success compatibility status.
+///
+/// Receipt status is part of the receipt trie and therefore the sealed block
+/// hash. Keep this consensus-affecting semantic change behind the Epsilon
+/// block fork so historical replay and mixed-version rollout remain compatible
+/// until the network reaches the coordinated activation boundary.
+#[inline]
+pub fn is_system_tx_receipt_status_fork_active<S: EthChainSpec>(
+    chain_spec: &S,
+    block_number: u64,
+) -> bool {
+    chain_spec.gravity_hardforks().is_fork_active_at_block(GravityHardfork::Epsilon, block_number)
 }
 
 /// Verifies the protocol invariant that every [`SYSTEM_CALLER`]-signed

@@ -12,7 +12,7 @@ use alloy_primitives::Bytes;
 use alloy_sol_types::{SolCall, SolEvent};
 use gravity_api_types::events::contract_event::GravityEvent;
 use gravity_primitives::PIPE_BLOCK_GAS_LIMIT;
-use reth_chainspec::{ChainSpec, EthereumHardforks};
+use reth_chainspec::{is_system_tx_receipt_status_fork_active, ChainSpec, EthereumHardforks};
 use reth_ethereum_primitives::{Block, BlockBody, TransactionSigned};
 use reth_evm::Evm;
 use reth_execution_types::BlockExecutionOutput;
@@ -53,6 +53,25 @@ pub struct SystemTxnResult {
     pub txn: TransactionSigned,
 }
 
+/// Consensus-compatible receipt status for Gravity protocol-injected system transactions.
+///
+/// Before the Epsilon hardfork, system-transaction receipts are encoded with the legacy
+/// always-success status even when the EVM execution result reverted. This preserves the
+/// historical receipt trie and block hash. From Epsilon onward, receipts expose the actual
+/// EVM execution status.
+#[inline]
+fn system_txn_receipt_success(
+    chain_spec: &ChainSpec,
+    block_number: u64,
+    result: &ExecutionResult,
+) -> bool {
+    if is_system_tx_receipt_status_fork_active(chain_spec, block_number) {
+        result.is_success()
+    } else {
+        true
+    }
+}
+
 impl SystemTxnResult {
     /// Check if the transaction emitted a `NewEpoch` event
     pub fn emit_new_epoch(&self) -> Option<(u64, Bytes)> {
@@ -75,6 +94,7 @@ impl SystemTxnResult {
     pub(crate) fn insert_to_executed_ordered_block_result(
         self,
         result: &mut crate::ExecuteOrderedBlockResult,
+        chain_spec: &ChainSpec,
         insert_position: usize,
     ) {
         let gas_used = self.result.gas_used();
@@ -102,13 +122,13 @@ impl SystemTxnResult {
             receipt.cumulative_gas_used += gas_used;
         }
 
-        let is_success = self.result.is_success();
+        let success = system_txn_receipt_success(chain_spec, result.block.number, &self.result);
 
         result.execution_output.receipts.insert(
             insert_position,
             Receipt {
                 tx_type: self.txn.tx_type(),
-                success: is_success,
+                success,
                 cumulative_gas_used,
                 logs: self.result.into_logs(),
             },
@@ -176,9 +196,10 @@ pub(crate) fn system_txns_into_executed_ordered_block_result(
     for SystemTxnResult { result, txn } in system_txn_results {
         let gas_used = result.gas_used();
         cumulative_gas_used += gas_used;
+        let success = system_txn_receipt_success(chain_spec, ordered_block.number, &result);
         receipts.push(Receipt {
             tx_type: txn.tx_type(),
-            success: result.is_success(),
+            success,
             cumulative_gas_used,
             logs: result.into_logs(),
         });
