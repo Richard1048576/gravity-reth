@@ -102,7 +102,7 @@ impl<C: ChainSpecParser<ChainSpec: EthChainSpec + EthereumHardforks>> Command<C>
 
             // update finalized block if needed
             let last_saved_finalized_block_number = provider.last_finalized_block_number()?;
-            if last_saved_finalized_block_number.is_none_or(|f| f > target) {
+            if last_saved_finalized_block_number.is_some_and(|f| f > target) {
                 provider.save_finalized_block_number(target)?;
             }
 
