@@ -30,6 +30,12 @@ use std::fmt::Debug;
 /// NIL proposer index constant (from Blocker.sol)
 /// NIL blocks occur when consensus cannot produce a block with transactions
 pub const NIL_PROPOSER_INDEX: u64 = u64::MAX;
+/// Maximum number of failed proposer indices accepted from consensus input.
+///
+/// This keeps the ABI calldata for the privileged metadata system transaction
+/// well below the fixed 30M gas limit while still allowing far more entries
+/// than any expected active validator set.
+pub const MAX_FAILED_PROPOSER_INDICES: usize = 10_000;
 
 /// Result of a metadata transaction execution
 /// Merge new state changes into accumulated state changes
@@ -229,6 +235,25 @@ pub fn transact_system_txn(
     (SystemTxnResult { result: result.result, txn }, result.state)
 }
 
+/// Canonicalize coordinator-supplied failed proposer indices before encoding
+/// them into the privileged metadata system transaction.
+///
+/// The execution layer must not allow unbounded or malformed consensus input to
+/// control system-call calldata. Sorting and deduplication make the calldata
+/// deterministic, dropping `NIL_PROPOSER_INDEX` prevents the sentinel from being
+/// treated as a real validator index, and truncation bounds calldata growth.
+fn sanitize_failed_proposer_indices(failed_proposer_indices: &[u64]) -> Vec<u64> {
+    let mut sanitized: Vec<u64> = failed_proposer_indices
+        .iter()
+        .copied()
+        .filter(|index| *index != NIL_PROPOSER_INDEX)
+        .collect();
+    sanitized.sort_unstable();
+    sanitized.dedup();
+    sanitized.truncate(MAX_FAILED_PROPOSER_INDICES);
+    sanitized
+}
+
 /// Execute a metadata contract call (onBlockStart from Blocker.sol)
 ///
 /// Calls Blocker.onBlockStart(proposerIndex, failedProposerIndices, timestampMicros)
@@ -251,7 +276,7 @@ pub fn construct_metadata_txn(
 
     let call = onBlockStartCall {
         proposerIndex: proposer_idx,
-        failedProposerIndices: failed_proposer_indices.to_vec(),
+        failedProposerIndices: sanitize_failed_proposer_indices(failed_proposer_indices),
         timestampMicros: timestamp_us,
     };
     let input: Bytes = call.abi_encode().into();
@@ -276,6 +301,23 @@ mod tests {
             },
             txn: construct_metadata_txn(nonce, 1, 1_000_000, Some(0), &[]),
         }
+    }
+
+    #[test]
+    fn sanitize_failed_proposer_indices_bounds_and_canonicalizes_input() {
+        let mut failed = vec![9, 2, NIL_PROPOSER_INDEX, 2, 7, 1];
+        failed.extend((0..(MAX_FAILED_PROPOSER_INDICES as u64 + 10)).rev());
+
+        let sanitized = sanitize_failed_proposer_indices(&failed);
+
+        assert_eq!(sanitized.len(), MAX_FAILED_PROPOSER_INDICES);
+        assert!(sanitized.windows(2).all(|window| window[0] < window[1]));
+        assert!(!sanitized.contains(&NIL_PROPOSER_INDEX));
+        assert_eq!(sanitized[0], 0);
+        assert_eq!(
+            sanitized[MAX_FAILED_PROPOSER_INDICES - 1],
+            MAX_FAILED_PROPOSER_INDICES as u64 - 1
+        );
     }
 
     fn ordered_block() -> OrderedBlock {
