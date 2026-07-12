@@ -33,7 +33,6 @@ use tx::Tx;
 
 pub mod cursor;
 pub mod parallel_tx;
-use parallel_tx::ParallelTxRO;
 pub mod tx;
 
 mod utils;
@@ -218,11 +217,16 @@ pub struct DatabaseEnv {
 }
 
 impl Database for DatabaseEnv {
-    type TX = ParallelTxRO;
+    type TX = tx::Tx<RO>;
     type TXMut = tx::Tx<RW>;
 
     fn tx(&self) -> Result<Self::TX, DatabaseError> {
-        ParallelTxRO::try_new(self.inner.clone(), self.dbis.clone(), self.metrics.clone())
+        Tx::new(
+            self.inner.begin_ro_txn().map_err(|e| DatabaseError::InitTx(e.into()))?,
+            self.dbis.clone(),
+            self.metrics.clone(),
+        )
+        .map_err(|e| DatabaseError::InitTx(e.into()))
     }
 
     fn tx_mut(&self) -> Result<Self::TXMut, DatabaseError> {
