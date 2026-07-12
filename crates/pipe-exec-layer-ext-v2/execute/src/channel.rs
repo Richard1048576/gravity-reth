@@ -90,7 +90,8 @@ impl<K: Eq + Clone + Debug + Hash, V> Channel<K, V> {
     }
 
     /// Notify the key with the value.
-    /// Returns `None` if the barrier has been closed.
+    /// Returns `None` if the barrier has been closed or the key already has an
+    /// unconsumed notification.
     pub(crate) fn notify(&self, key: K, val: V) -> Option<()> {
         let mut inner = self.inner.lock().unwrap();
         if inner.closed {
@@ -108,7 +109,8 @@ impl<K: Eq + Clone + Debug + Hash, V> Channel<K, V> {
                 }
             }
             Some(State::Notified(_)) => {
-                panic!("unexpected state: {key:?}");
+                warn!("Channel notify(key: {:?}) ignored duplicate unconsumed notification", key);
+                return None;
             }
             None => {
                 inner.states.insert(key, State::Notified(val));
@@ -147,5 +149,17 @@ mod test {
         }
 
         tasks.join_all().await;
+    }
+
+    #[tokio::test]
+    async fn test_duplicate_notify_does_not_panic_or_overwrite() {
+        let barrier = super::Channel::new();
+
+        assert_eq!(barrier.notify(1, 10), Some(()));
+        assert_eq!(barrier.notify(1, 11), None);
+        assert_eq!(barrier.notify(2, 20), Some(()));
+
+        assert_eq!(barrier.wait(1).await, Some(10));
+        assert_eq!(barrier.wait(2).await, Some(20));
     }
 }
