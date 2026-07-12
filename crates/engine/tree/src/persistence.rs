@@ -471,10 +471,15 @@ where
             provider_rw.write_trie_updatesv2(triev2.as_ref()).map_err(ProviderError::Database)?;
         }
 
+        // Make the just-written changesets visible before building history indices. RocksDB
+        // batches do not provide read-your-writes semantics, and `update_history_indices` derives
+        // its entries by reading AccountChangeSets and StorageChangeSets.
+        provider_rw.commit_view()?;
+
         // History indices for the whole range, once.
         provider_rw.update_history_indices(group_first..=group_last)?;
 
-        // Advance every written stage's checkpoint to the group tip, then commit the group once.
+        // Advance every written stage's checkpoint to the group tip, then commit the group.
         // `MerkleExecute` passes `None` (trie writes are idempotent and may resume mid-range); the
         // rest assert checkpoint continuity from `group_first`.
         let tx = provider_rw.tx_ref();
