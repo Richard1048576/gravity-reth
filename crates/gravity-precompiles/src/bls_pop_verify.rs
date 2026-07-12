@@ -21,22 +21,12 @@ const BLS_POP_LEN: usize = 96;
 /// Expected input length: pubkey (48) + pop (96) = 144 bytes
 const EXPECTED_INPUT_LEN: usize = BLS_PUBKEY_LEN + BLS_POP_LEN;
 
-/// Gas cost for `PoP` verification (2 bilinear pairings + hash-to-curve).
+/// Historical gas cost for `PoP` verification.
 ///
-/// Benchmark results (`cargo bench --bench bls_pop_verify_bench`):
-///   - `verify_pop` (valid):    ~2.12 ms
-///   - `handler_raw` (valid):   ~2.16 ms  (full precompile path)
-///   - `verify_pop` (bad pop):  ~66.8 µs  (pairing fail, early exit)
-///   - `verify_pop` (bad pk):   ~3.6 ns   (deser fail, early exit)
-///
-/// Gas/ns reference for pairing-class precompiles:
-///   - bn128 pairing (2 pairs, EIP-1108): 113,000 gas / ~3 ms ≈ 0.038 gas/ns
-///   - BLS12 pairing (2 pairs, EIP-2537): 109,000 gas / ~3 ms ≈ 0.036 gas/ns
-///   - ecRecover:                           3,000 gas / ~50 µs ≈ 0.06 gas/ns
-///
-/// At ~0.05 gas/ns (mid-range for pairing ops): 2,160,000 ns × 0.05 ≈ 108,000 gas.
-/// Rounded to 110,000 to align with EIP-2537 BLS pairing (2 pairs) pricing.
-const POP_VERIFY_GAS: u64 = 110_000;
+/// This precompile is user-callable and its returned `gas_used` is consensus-visible.
+/// Keep the original price unless a future repricing is activated by an explicit
+/// network hardfork so historical blocks continue to replay identically.
+const POP_VERIFY_GAS: u64 = 45_000;
 
 /// Domain separation tag for BLS `PoP` verification
 /// Matches the IETF standard for BLS12-381 `PoP`

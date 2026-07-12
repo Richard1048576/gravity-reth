@@ -26,7 +26,7 @@
 //!      whose timestamp predates Alpha activation. Commit `23a55587c4` registers BLS
 //!      *unconditionally* (no Alpha gate) — mirroring the pipe execution layer's
 //!      `pre_alpha_precompiles`. Without that fix, RPC replay of any pre-Alpha block that called
-//!      BLS would route the call to an empty account (no precompile dispatch, no 110_000 gas
+//!      BLS would route the call to an empty account (no precompile dispatch, no 45_000 gas
 //!      charge), diverging from canonical for the entire pre-Alpha history. This test is the
 //!      long-term regression guard against re-gating BLS behind Alpha.
 //!
@@ -48,7 +48,7 @@
 //! the byte-equality assertion compares pipe canonical execution against RPC
 //! replay (both run the same handler), the *content* of the input does not need
 //! to be a valid PoP: 144 zero bytes deterministically returns a 32-byte
-//! `0x00..00` and a `gas_used == POP_VERIFY_GAS = 110_000`. This mirrors
+//! `0x00..00` and a `gas_used == POP_VERIFY_GAS = 45_000`. This mirrors
 //! `gravity_bls_precompile_test.rs::POISON_GAS_LIMIT` style: any 144-byte
 //! buffer is enough to drive the precompile through its full code path.
 
@@ -107,7 +107,7 @@ const BLS_PRECOMPILE_ADDR: Address = address!("000000000000000000000000000000016
 const BLS_INPUT_LEN: usize = 144;
 
 /// Flat gas charge of the BLS precompile (`POP_VERIFY_GAS`).
-const POP_VERIFY_GAS: u64 = 110_000;
+const POP_VERIFY_GAS: u64 = 45_000;
 
 /// gas_limit for the BLS user tx: intrinsic (~21k base + ~580 for 144 zero
 /// calldata bytes) + `POP_VERIFY_GAS` headroom. 200_000 is well above and not
@@ -487,7 +487,7 @@ async fn run_bls_replay(
     );
     // Sanity floor: per-tx gas must include the flat BLS charge; otherwise
     // the canonical side itself didn't run the precompile (would point at a
-    // pipe-side regression rather than an RPC one). intrinsic + 110_000 ≥ 131k.
+    // pipe-side regression rather than an RPC one). intrinsic + 45_000 is well above POP_VERIFY_GAS.
     assert!(
         canonical_bls_gas >= POP_VERIFY_GAS,
         "[bls_replay {label}] canonical BLS tx gas {canonical_bls_gas} must be >= POP_VERIFY_GAS={POP_VERIFY_GAS}"

@@ -1,17 +1,17 @@
 //! Gas-limit regression test for the BLS pop-verify precompile (gravity-audit#678).
 //!
 //! The BLS precompile `0x…1625f5001` is registered in the **user-transaction**
-//! `custom_precompiles` set and charges a flat `POP_VERIFY_GAS = 110_000` for any
-//! input. Before the fix, the handler returned `Ok(gas_used = 110_000)` without
+//! `custom_precompiles` set and charges a flat `POP_VERIFY_GAS = 45_000` for any
+//! input. Before the fix, the handler returned `Ok(gas_used = 45_000)` without
 //! checking the gas forwarded by the caller; the alloy-evm dispatcher then ran
-//! `assert!(record_cost(110_000))`, and when the forwarded gas was below the flat
+//! `assert!(record_cost(45_000))`, and when the forwarded gas was below the flat
 //! charge, `record_cost` returned false → assert panic → deterministic abort of
 //! block execution. Any funded account could trigger a network-wide halt with a
 //! single under-gassed transaction (and restart-replay re-panics).
 //!
 //! This test submits a transaction calling the BLS precompile with a `gas_limit`
 //! above the EIP-7702 intrinsic floor (so it is not dropped by
-//! `filter_invalid_txs`) but leaving less than 110_000 gas forwarded to the
+//! `filter_invalid_txs`) but leaving less than 45_000 gas forwarded to the
 //! precompile:
 //!   - Before the fix: executing the block panics (the panic hook calls `process::exit(1)`,
 //!     aborting the test).
@@ -79,9 +79,9 @@ const BLS_INPUT_LEN: usize = 144;
 
 /// Poison tx gas_limit: above the EIP-7702 intrinsic floor (21_000 base +
 /// 25_000/auth + calldata, ~46.6k, so it is not dropped by filter_invalid_txs),
-/// yet after intrinsic the gas forwarded to the precompile (~53k) is below
-/// POP_VERIFY_GAS=110_000 → triggers the pre-fix panic.
-const POISON_GAS_LIMIT: u64 = 100_000;
+/// yet after intrinsic the gas forwarded to the precompile (~33k) is below
+/// POP_VERIFY_GAS=45_000 → triggers the pre-fix panic.
+const POISON_GAS_LIMIT: u64 = 80_000;
 
 fn gravity_prague_chainspec(prague_time: Option<u64>) -> String {
     let mut json: serde_json::Value =
@@ -377,9 +377,9 @@ async fn run_bls_low_gas(
     consensus.push_empty_range(&mut epoch, latest_block_number + 1, P3_ACTIVATION_BLOCK - 1).await;
 
     // Inject the poison tx at activation block 100: call the BLS precompile, 144
-    // bytes of input, gas_limit=100_000. The gas_limit is above the 7702 intrinsic
+    // bytes of input, gas_limit=80_000. The gas_limit is above the 7702 intrinsic
     // floor (so it is not filtered), but after intrinsic the gas forwarded to the
-    // precompile is < 110_000 → pre-fix this panics in the alloy-evm dispatcher.
+    // precompile is < 45_000 → pre-fix this panics in the alloy-evm dispatcher.
     let sender = funded_signer();
     let authority = authority_signer(0x42);
     let auth = sign_authorization(&authority, CHAIN_ID, TARGET_ADDR, 0);
