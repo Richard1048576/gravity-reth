@@ -201,6 +201,11 @@ where
         self.identifiers.write().sender_id_or_create(addr)
     }
 
+    /// Returns the internal [`SenderId`] for this address if it already exists.
+    pub fn get_existing_sender_id(&self, addr: &Address) -> Option<SenderId> {
+        self.identifiers.read().sender_id(addr)
+    }
+
     /// Returns the internal [`SenderId`]s for the given addresses.
     pub fn get_sender_ids(&self, addrs: impl IntoIterator<Item = Address>) -> Vec<SenderId> {
         self.identifiers.write().sender_ids_or_create(addrs)
@@ -1483,5 +1488,14 @@ mod tests {
 
         let identifiers = test_pool.identifiers.read();
         assert_eq!(identifiers.sender_id(&auth), Some(SenderId::from(1)));
+    }
+
+    #[test]
+    fn test_get_existing_sender_id_does_not_create_identifier() {
+        let test_pool = &TestPoolBuilder::default().with_config(Default::default()).pool;
+        let sender = Address::new([1; 20]);
+
+        assert_eq!(test_pool.get_existing_sender_id(&sender), None);
+        assert_eq!(test_pool.identifiers.read().sender_id(&sender), None);
     }
 }
