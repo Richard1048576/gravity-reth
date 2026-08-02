@@ -379,10 +379,8 @@ impl<N: ProviderNodeTypes> Pipeline<N> {
                         let last_saved_finalized_block_number =
                             provider_rw.last_finalized_block_number()?;
 
-                        // If None, that means the finalized block is not written so we should
-                        // always save in that case
-                        if last_saved_finalized_block_number.is_none() ||
-                            Some(checkpoint.block_number) < last_saved_finalized_block_number
+                        if last_saved_finalized_block_number
+                            .is_some_and(|finalized| checkpoint.block_number < finalized)
                         {
                             provider_rw.save_finalized_block_number(BlockNumber::from(
                                 checkpoint.block_number,
