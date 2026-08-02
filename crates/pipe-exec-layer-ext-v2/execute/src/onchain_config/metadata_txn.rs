@@ -17,6 +17,7 @@ use reth_ethereum_primitives::{Block, BlockBody, TransactionSigned};
 use reth_evm::Evm;
 use reth_execution_types::BlockExecutionOutput;
 use reth_primitives::Receipt;
+use reth_primitives_traits::BlockBody as _;
 use reth_provider::BlockExecutionResult;
 use revm::{
     context::TxEnv,
@@ -125,6 +126,7 @@ pub(crate) fn system_txns_into_executed_ordered_block_result(
     chain_spec: &ChainSpec,
     ordered_block: &OrderedBlock,
     base_fee: u64,
+    cancun_excess_blob_gas: Option<u64>,
     state: BundleState,
     validators: Bytes,
 ) -> ExecuteOrderedBlockResult {
@@ -165,9 +167,7 @@ pub(crate) fn system_txns_into_executed_ordered_block_result(
         // execution?
         block.header.parent_beacon_block_root = Some(ordered_block.parent_id);
 
-        // TODO(nekomoto): fill `excess_blob_gas` and `blob_gas_used` fields
-        block.header.excess_blob_gas = Some(0);
-        block.header.blob_gas_used = Some(0);
+        block.header.excess_blob_gas = cancun_excess_blob_gas;
     }
 
     let mut receipts = Vec::with_capacity(system_txn_results.len());
@@ -176,14 +176,19 @@ pub(crate) fn system_txns_into_executed_ordered_block_result(
     for SystemTxnResult { result, txn } in system_txn_results {
         let gas_used = result.gas_used();
         cumulative_gas_used += gas_used;
+        let tx_type = txn.tx_type();
+        block.body.transactions.push(txn);
         receipts.push(Receipt {
-            tx_type: txn.tx_type(),
+            tx_type,
             success: result.is_success(),
             cumulative_gas_used,
             logs: result.into_logs(),
         });
-        block.body.transactions.push(txn);
         senders.push(SYSTEM_CALLER);
+    }
+
+    if chain_spec.is_cancun_active_at_timestamp(block.timestamp) {
+        block.header.blob_gas_used = Some(block.body.blob_gas_used());
     }
 
     let new_epoch = ordered_block.epoch + 1;
@@ -306,6 +311,7 @@ mod tests {
             &ChainSpec::default(),
             &ordered_block(),
             1,
+            None,
             BundleState::default(),
             Bytes::from_static(b"validators"),
         );
