@@ -15,33 +15,8 @@ use reth_trie::{updates::TrieUpdatesV2, HashedPostState};
 use reth_trie_parallel::nested_hash::NestedStateRoot;
 use std::{
     collections::BTreeMap,
-    fmt,
     sync::{Arc, Mutex},
 };
-
-/// Errors returned by `block_hash_ref` when the requested block number is out of range.
-#[derive(Debug, Clone)]
-pub enum BlockHashError {
-    /// The requested block number is greater than the latest known block.
-    BlockTooHigh(u64),
-    /// The requested block number is older than `BLOCK_HASH_HISTORY` blocks.
-    BlockTooOld(u64),
-}
-
-impl fmt::Display for BlockHashError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::BlockTooHigh(number) => {
-                write!(f, "block {number} is too high: exceeds latest known block")
-            }
-            Self::BlockTooOld(number) => {
-                write!(f, "block {number} is too old: only the last {BLOCK_HASH_HISTORY} block hashes are available")
-            }
-        }
-    }
-}
-
-impl std::error::Error for BlockHashError {}
 
 /// Block view for pipeline execution
 #[allow(missing_debug_implementations)]
@@ -129,7 +104,6 @@ where
 pub struct RawBlockViewProvider<Tx> {
     tx: Tx,
     cache: Option<PersistBlockCache>,
-    block_number_to_id: Arc<Mutex<BTreeMap<u64, B256>>>,
 }
 
 impl<Tx> RawBlockViewProvider<Tx> {
@@ -137,9 +111,9 @@ impl<Tx> RawBlockViewProvider<Tx> {
     pub fn new(
         tx: Tx,
         cache: Option<PersistBlockCache>,
-        block_number_to_id: Arc<Mutex<BTreeMap<u64, B256>>>,
+        _block_number_to_id: Arc<Mutex<BTreeMap<u64, B256>>>,
     ) -> Self {
-        Self { tx, cache, block_number_to_id }
+        Self { tx, cache }
     }
 }
 
@@ -149,7 +123,7 @@ impl<Tx: DbTx> DatabaseRef for RawBlockViewProvider<Tx> {
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
         if let Some(cache) = &self.cache {
             if let Some(value) = cache.basic_account(&address) {
-                return Ok(value.map(Into::into))
+                return Ok(value.map(Into::into));
             }
         }
         Ok(self.tx.get_by_encoded_key::<tables::PlainAccountState>(&address)?.map(Into::into))
@@ -189,16 +163,7 @@ impl<Tx: DbTx> DatabaseRef for RawBlockViewProvider<Tx> {
     }
 
     fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
-        let block_number_to_id = self.block_number_to_id.lock().unwrap();
-        if let Some(block_id) = block_number_to_id.get(&number) {
-            return Ok(*block_id);
-        }
-        // Check if the requested block is beyond the latest known block.
-        if block_number_to_id.last_key_value().is_none_or(|(&max, _)| number > max) {
-            return Err(ProviderError::other(BlockHashError::BlockTooHigh(number)));
-        }
-        // The requested block is older than the maintained history window.
-        Err(ProviderError::other(BlockHashError::BlockTooOld(number)))
+        Ok(self.tx.get::<tables::CanonicalHeaders>(number)?.unwrap_or_default())
     }
 }
 
@@ -207,7 +172,6 @@ impl<Tx: DbTx> DatabaseRef for RawBlockViewProvider<Tx> {
 pub struct BlockViewProvider {
     db: StateProviderDatabase<StateProviderBox>,
     cache: Option<PersistBlockCache>,
-    block_number_to_id: Arc<Mutex<BTreeMap<u64, B256>>>,
 }
 
 impl BlockViewProvider {
@@ -215,9 +179,9 @@ impl BlockViewProvider {
     pub fn new(
         db: StateProviderDatabase<StateProviderBox>,
         cache: Option<PersistBlockCache>,
-        block_number_to_id: Arc<Mutex<BTreeMap<u64, B256>>>,
+        _block_number_to_id: Arc<Mutex<BTreeMap<u64, B256>>>,
     ) -> Self {
-        Self { db, cache, block_number_to_id }
+        Self { db, cache }
     }
 }
 
@@ -227,7 +191,7 @@ impl DatabaseRef for BlockViewProvider {
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
         if let Some(cache) = &self.cache {
             if let Some(value) = cache.basic_account(&address) {
-                return Ok(value.map(Into::into))
+                return Ok(value.map(Into::into));
             }
         }
         self.db.basic_ref(address)
@@ -260,16 +224,7 @@ impl DatabaseRef for BlockViewProvider {
     }
 
     fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
-        let block_number_to_id = self.block_number_to_id.lock().unwrap();
-        if let Some(block_id) = block_number_to_id.get(&number) {
-            return Ok(*block_id);
-        }
-        // Check if the requested block is beyond the latest known block.
-        if block_number_to_id.last_key_value().is_none_or(|(&max, _)| number > max) {
-            return Err(ProviderError::other(BlockHashError::BlockTooHigh(number)));
-        }
-        // The requested block is older than the maintained history window.
-        Err(ProviderError::other(BlockHashError::BlockTooOld(number)))
+        self.db.block_hash_ref(number)
     }
 }
 
@@ -444,36 +399,17 @@ mod tests {
     }
 
     #[test]
-    fn test_block_hash_ref() {
-        let hash = |v: u8| -> B256 {
-            let mut b = [0u8; 32];
-            b[31] = v;
-            B256::from(b)
-        };
+    fn block_hash_ref_ignores_gravity_block_id_cache() {
+        let gravity_block_id = B256::repeat_byte(0x11);
 
         let map: Arc<Mutex<BTreeMap<u64, B256>>> =
-            Arc::new(Mutex::new(BTreeMap::from([(100, hash(1)), (101, hash(2)), (102, hash(3))])));
+            Arc::new(Mutex::new(BTreeMap::from([(100, gravity_block_id)])));
 
         let provider = RawBlockViewProvider::new(TxMock::default(), None, map);
 
-        // Found
-        assert_eq!(provider.block_hash_ref(100).unwrap(), hash(1));
-        assert_eq!(provider.block_hash_ref(101).unwrap(), hash(2));
-        assert_eq!(provider.block_hash_ref(102).unwrap(), hash(3));
-
-        // Too high
-        let err = provider.block_hash_ref(103).unwrap_err();
-        assert!(matches!(
-            err.downcast_other_ref::<BlockHashError>().unwrap(),
-            BlockHashError::BlockTooHigh(103)
-        ));
-
-        // Too old
-        let err = provider.block_hash_ref(99).unwrap_err();
-        assert!(matches!(
-            err.downcast_other_ref::<BlockHashError>().unwrap(),
-            BlockHashError::BlockTooOld(99)
-        ));
+        assert_eq!(provider.block_hash_ref(100).unwrap(), B256::ZERO);
+        assert_eq!(provider.block_hash_ref(99).unwrap(), B256::ZERO);
+        assert_eq!(provider.block_hash_ref(101).unwrap(), B256::ZERO);
     }
 
     #[test]
