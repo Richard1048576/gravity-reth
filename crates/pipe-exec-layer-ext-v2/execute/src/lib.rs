@@ -811,12 +811,9 @@ impl<Storage: GravityStorage> Core<Storage> {
         &self,
         ordered_block: OrderedBlock,
         base_fee: u64,
-        state: &Storage::StateView,
+        _state: &Storage::StateView,
         mut validator_txns: Vec<TransactionSigned>,
-        // System-txn gas already consumed before this block runs; subtracted from the user
-        // filter budget so `header.gas_used` stays `≤ header.gas_limit` after metadata +
-        // validator receipts are appended. Closes gravity-audit#621.
-        sum_system_gas: u64,
+        _sum_system_gas: u64,
     ) -> (RecoveredBlock<Block>, Vec<TxInfo>) {
         assert_eq!(ordered_block.transactions.len(), ordered_block.senders.len());
         let mut block = Block {
@@ -864,22 +861,27 @@ impl<Storage: GravityStorage> Core<Storage> {
             block.header.blob_gas_used = Some(0);
         }
 
-        // Discard the invalid txs.
-        // `saturating_sub`: a byzantine proposer (or a future system-txn addition that
-        // overshoots) yields budget=0, dropping every user tx — the only safe fallback
-        // when `sum_system_gas ≥ block.gas_limit`.
-        let user_gas_budget = block.gas_limit.saturating_sub(sum_system_gas);
-        let start_time = Instant::now();
-        let (txs, senders, txs_info) = self.filter_invalid_txs(
-            state,
-            ordered_block.transactions,
-            ordered_block.senders,
-            base_fee,
-            user_gas_budget,
-            block.timestamp,
-            block.number,
-        );
-        self.metrics.filter_transaction_duration.record(start_time.elapsed());
+        // Preserve the consensus-ordered user transaction list exactly.
+        //
+        // Pre-execution filtering cannot be made equivalent to Ethereum execution without
+        // executing the preceding transactions first: account balances and nonces may change
+        // earlier in the same block, gas refunds affect affordability for later transactions,
+        // and contract calls can produce state that a later transaction depends on. Mutating
+        // the ordered body here can therefore drop valid transactions and produce a block
+        // different from the one agreed by consensus. Keep all ordered transactions in the
+        // block body and let the executor apply the canonical state transition.
+        let txs = ordered_block.transactions;
+        let senders = ordered_block.senders;
+        let txs_info = txs
+            .iter()
+            .zip(senders.iter())
+            .map(|(tx, sender)| TxInfo {
+                tx_hash: *tx.hash(),
+                sender: *sender,
+                nonce: tx.nonce(),
+                is_discarded: false,
+            })
+            .collect();
         let (txs, senders) = if !validator_txns.is_empty() {
             let mut address = vec![SYSTEM_CALLER; validator_txns.len()];
             address.extend(senders);
