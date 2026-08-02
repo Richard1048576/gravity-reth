@@ -1588,7 +1588,8 @@ impl<Storage: GravityStorage, EthApi> PipeExecLayerApi<Storage, EthApi> {
     /// Push verified block hash to EL for commit.
     /// The caller can optionally pass in a verified block hash, which is solely used for the EL
     /// defensive check to ensure the consistency of the block hash before and after verification.
-    /// Returns `None` if the channel has been closed.
+    /// Returns `None` if the channel has been closed or this block id already has an
+    /// unconsumed verification result.
     pub fn commit_executed_block_hash(
         &self,
         block_id: B256,
